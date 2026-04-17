@@ -7,27 +7,167 @@ Monorepo for an ecommerce lead generation system with:
 - Modular lead-scoring configuration
 - MySQL, Redis, and WhatWeb-powered detection support
 
-## Monorepo layout
+## Proposed monorepo structure
 
 ```text
-apps/
-  backend/                # Laravel service (API, orchestration, lead persistence)
-  crawler/                # Scrapy project (discovery, detection, classification)
-packages/
-  shared-config/          # Cross-service scoring + fingerprint configuration
-infra/
-  docker/                 # Compose and local container definitions
-  mysql/                  # DB initialization helpers
-  redis/                  # Redis defaults
-  whatweb/                # WhatWeb profiles and wrappers
-  queues/                 # Queue/process supervisor templates
-docs/
-  architecture/           # System design docs
-  runbooks/               # Operational playbooks
-  adr/                    # Architecture decision records
-.github/
-  workflows/              # CI pipelines
+commerce-lead-engine/
+├─ AGENTS.md
+├─ README.md
+├─ .github/
+│  └─ workflows/
+│     ├─ ci-backend.yml
+│     ├─ ci-crawler.yml
+│     └─ lint-and-contracts.yml
+├─ apps/
+│  ├─ backend/
+│  │  ├─ app/
+│  │  │  ├─ Domain/
+│  │  │  │  ├─ Discovery/
+│  │  │  │  ├─ Detection/
+│  │  │  │  ├─ Classification/
+│  │  │  │  └─ Scoring/
+│  │  │  ├─ Http/
+│  │  │  │  ├─ Controllers/
+│  │  │  │  ├─ Requests/
+│  │  │  │  └─ Resources/
+│  │  │  ├─ Jobs/
+│  │  │  ├─ Services/
+│  │  │  └─ Support/
+│  │  ├─ bootstrap/
+│  │  ├─ config/
+│  │  │  ├─ lead_scoring.php
+│  │  │  ├─ fingerprints.php
+│  │  │  └─ crawler.php
+│  │  ├─ database/
+│  │  │  ├─ migrations/
+│  │  │  ├─ factories/
+│  │  │  └─ seeders/
+│  │  ├─ routes/
+│  │  │  ├─ api.php
+│  │  │  ├─ web.php
+│  │  │  └─ internal.php
+│  │  ├─ storage/
+│  │  ├─ tests/
+│  │  │  ├─ Feature/
+│  │  │  ├─ Unit/
+│  │  │  └─ Fixtures/
+│  │  ├─ composer.json
+│  │  └─ phpunit.xml
+│  └─ crawler/
+│     ├─ crawler/
+│     │  ├─ spiders/
+│     │  │  ├─ discovery_spider.py
+│     │  │  ├─ platform_spider.py
+│     │  │  └─ classification_spider.py
+│     │  ├─ classifiers/
+│     │  ├─ detectors/
+│     │  ├─ pipelines/
+│     │  ├─ middlewares/
+│     │  ├─ items.py
+│     │  ├─ settings.py
+│     │  └─ contracts/
+│     │     └─ lead_event.schema.json
+│     ├─ tests/
+│     │  ├─ unit/
+│     │  ├─ integration/
+│     │  └─ fixtures/
+│     ├─ scrapy.cfg
+│     ├─ pyproject.toml
+│     └─ requirements.txt
+├─ docker/
+│  ├─ compose.yml
+│  ├─ compose.dev.yml
+│  ├─ .env.example
+│  ├─ backend/
+│  │  ├─ Dockerfile
+│  │  └─ php.ini
+│  ├─ crawler/
+│  │  ├─ Dockerfile
+│  │  └─ entrypoint.sh
+│  ├─ mysql/
+│  │  ├─ Dockerfile
+│  │  └─ init/
+│  │     ├─ 001-schema.sql
+│  │     └─ 002-seed-dev.sql
+│  ├─ redis/
+│  │  └─ redis.conf
+│  └─ whatweb/
+│     ├─ Dockerfile
+│     ├─ plugins/
+│     └─ fingerprints/
+├─ docs/
+│  ├─ architecture/
+│  │  ├─ overview.md
+│  │  ├─ domain-discovery.md
+│  │  ├─ platform-detection.md
+│  │  ├─ page-classification.md
+│  │  └─ lead-scoring.md
+│  ├─ setup/
+│  │  ├─ local-development.md
+│  │  ├─ environment-variables.md
+│  │  └─ docker-services.md
+│  ├─ api-contracts/
+│  │  ├─ lead-ingest.openapi.yaml
+│  │  └─ crawler-events.schema.json
+│  ├─ fixtures/
+│  │  ├─ html-samples/
+│  │  ├─ whatweb-samples/
+│  │  └─ scoring-samples/
+│  └─ adr/
+│     ├─ 0001-monorepo-layout.md
+│     └─ 0002-detection-and-scoring-boundaries.md
+├─ packages/
+│  ├─ fingerprints/
+│  │  ├─ rules/
+│  │  │  ├─ shopify.yml
+│  │  │  ├─ woocommerce.yml
+│  │  │  └─ magento.yml
+│  │  ├─ tests/
+│  │  └─ README.md
+│  ├─ scoring/
+│  │  ├─ models/
+│  │  │  ├─ default-score.yml
+│  │  │  └─ enterprise-score.yml
+│  │  ├─ weights/
+│  │  ├─ tests/
+│  │  └─ README.md
+│  └─ contracts/
+│     ├─ events/
+│     │  └─ lead_discovered.v1.json
+│     ├─ api/
+│     │  └─ lead_response.v1.json
+│     └─ README.md
+├─ scripts/
+│  ├─ dev/
+│  │  ├─ up.sh
+│  │  ├─ down.sh
+│  │  └─ reset.sh
+│  ├─ lint/
+│  │  ├─ backend.sh
+│  │  └─ crawler.sh
+│  └─ ci/
+│     └─ validate-contracts.sh
+└─ .editorconfig
 ```
+
+## Top-level folder responsibilities
+
+- `.github/` — CI/CD workflows for backend, crawler, and shared contract validation.
+- `apps/` — deployable applications only (Laravel backend and Scrapy crawler).
+- `docker/` — local development container definitions (compose + per-service Dockerfiles/config).
+- `docs/` — architecture, setup/runbooks, fixtures documentation, and API contract references.
+- `packages/` — shared, versioned domain assets (fingerprint rules, scoring configs, and contract schemas).
+- `scripts/` — local/CI automation wrappers for repeatable developer workflows.
+
+## Naming conventions
+
+- **Version contracts explicitly**: use suffixes like `.v1.json` and keep breaking changes in new versions (e.g., `lead_discovered.v2.json`).
+- **Domain-first folder names**: `Discovery`, `Detection`, `Classification`, `Scoring` across backend and docs.
+- **Rule files by platform**: `packages/fingerprints/rules/<platform>.yml` (for example `shopify.yml`).
+- **Scoring profiles by intent**: `packages/scoring/models/<profile>-score.yml` (for example `enterprise-score.yml`).
+- **SQL migration ordering**: prefix with numeric sequence `001-...sql`, `002-...sql` under Docker init scripts.
+- **Fixtures separated by source**: use `html-samples/`, `whatweb-samples/`, and `scoring-samples/` to avoid mixed fixture types.
+- **Environment files**: keep templates as `.env.example` and never commit real secrets.
 
 ## Key design principles
 
