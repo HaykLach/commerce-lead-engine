@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Enums\DomainStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Domain extends BaseModel
 {
@@ -58,8 +59,18 @@ class Domain extends BaseModel
         return $this->hasMany(DomainMetric::class);
     }
 
+    public function latestMetric(): HasOne
+    {
+        return $this->hasOne(DomainMetric::class)->latestOfMany('measured_at');
+    }
+
     public function leadScores(): HasMany
     {
         return $this->hasMany(LeadScore::class);
+    }
+
+    public function latestLeadScore(): HasOne
+    {
+        return $this->hasOne(LeadScore::class)->latestOfMany('computed_at');
     }
 }
