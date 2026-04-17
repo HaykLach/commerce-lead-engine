@@ -6,12 +6,12 @@ return [
     'enabled' => env('SCORING_ENABLED', true),
 
     'weights' => [
-        'platform_confidence' => (int) env('SCORING_WEIGHT_PLATFORM_CONFIDENCE', 25),
-        'product_page_presence' => (int) env('SCORING_WEIGHT_PRODUCT_PAGE_PRESENCE', 20),
-        'checkout_detection' => (int) env('SCORING_WEIGHT_CHECKOUT_DETECTION', 20),
-        'contact_page_presence' => (int) env('SCORING_WEIGHT_CONTACT_PAGE_PRESENCE', 10),
-        'technology_signal' => (int) env('SCORING_WEIGHT_TECHNOLOGY_SIGNAL', 15),
-        'crawl_freshness' => (int) env('SCORING_WEIGHT_CRAWL_FRESHNESS', 10),
+        'seo_gap_score' => (int) env('SCORING_WEIGHT_SEO_GAP_SCORE', 20),
+        'plugin_script_bloat_score' => (int) env('SCORING_WEIGHT_PLUGIN_SCRIPT_BLOAT_SCORE', 15),
+        'custom_stack_complexity_score' => (int) env('SCORING_WEIGHT_CUSTOM_STACK_COMPLEXITY_SCORE', 15),
+        'ecommerce_maturity_score' => (int) env('SCORING_WEIGHT_ECOMMERCE_MATURITY_SCORE', 20),
+        'erp_automation_fit_score' => (int) env('SCORING_WEIGHT_ERP_AUTOMATION_FIT_SCORE', 20),
+        'platform_fit_score' => (int) env('SCORING_WEIGHT_PLATFORM_FIT_SCORE', 10),
     ],
 
     'thresholds' => [
