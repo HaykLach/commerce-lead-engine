@@ -1,5 +1,15 @@
 """Custom fingerprint detection package."""
 
-from .rule_engine import FingerprintRuleEngine, FingerprintSignal
+from .rule_engine import (
+    FingerprintInputBundle,
+    FingerprintResult,
+    FingerprintRule,
+    FingerprintRuleEngine,
+)
 
-__all__ = ["FingerprintRuleEngine", "FingerprintSignal"]
+__all__ = [
+    "FingerprintInputBundle",
+    "FingerprintResult",
+    "FingerprintRule",
+    "FingerprintRuleEngine",
+]
