@@ -175,3 +175,58 @@ commerce-lead-engine/
 - Custom fingerprint detection for platform identification.
 - Configurable scoring logic.
 - Modular architecture between crawling, detection, and scoring.
+
+## Local development setup
+
+This repository includes a Docker-based local environment for the monorepo assumptions below:
+
+- Laravel backend path: `apps/backend`
+- Scrapy crawler path: `apps/crawler`
+
+### Services included
+
+- `nginx` (entrypoint HTTP server for backend)
+- `php-fpm` (Laravel runtime)
+- `mysql` (persistent local database)
+- `redis` (cache/queue)
+- `crawler` (Python container with Scrapy dependencies + WhatWeb)
+
+### 1) Prepare environment variables
+
+```bash
+cp .env.example .env
+```
+
+Adjust ports and credentials if needed.
+
+### 2) Start the stack
+
+```bash
+make up
+```
+
+This runs `docker compose up -d --build` and builds custom images for PHP and crawler.
+
+### 3) Common local commands
+
+```bash
+make ps
+make logs
+make backend-shell
+make crawler-shell
+make mysql-shell
+make redis-cli
+```
+
+### 4) Stop the stack
+
+```bash
+make down
+```
+
+## Notes
+
+- Nginx serves the Laravel public folder from `apps/backend/public` on `http://localhost:8080` by default.
+- PHP-FPM, crawler, MySQL, and Redis communicate through the internal Docker network.
+- The crawler image installs `whatweb` from apt and Python crawler dependencies from pip.
+- Business logic and crawler spiders are intentionally not scaffolded yet in this step.
