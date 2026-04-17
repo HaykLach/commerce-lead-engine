@@ -230,3 +230,30 @@ make down
 - PHP-FPM, crawler, MySQL, and Redis communicate through the internal Docker network.
 - The crawler image installs `whatweb` from apt and Python crawler dependencies from pip.
 - Business logic and crawler spiders are intentionally not scaffolded yet in this step.
+
+## Backend skeleton (`apps/backend`)
+
+A Laravel-style API-first backend skeleton is now prepared under `apps/backend` with a service-oriented layout for the lead pipeline domains:
+
+- Domain ingestion/discovery
+- Fingerprint detection
+- Page classification
+- Lead scoring
+- Crawl job orchestration
+
+### Included scaffolding
+
+- `composer.json` configured for Laravel 11 + PHP 8.2.
+- `routes/api.php` with `/api/v1/health` and domain intake endpoint placeholders.
+- `routes/web.php` with root status and `admin` route namespace placeholder.
+- `config/scoring.php` containing configurable, environment-driven scoring weights and thresholds.
+- Base Eloquent models and enums for domain state and page types.
+- Service placeholders for discovery, detection, classification, scoring, and crawl orchestration.
+- Queue job placeholders for crawl execution, fingerprint processing, and score computation.
+- Lightweight DTO-style request/result data classes for API/service boundaries.
+
+### Notes
+
+- This is intentionally a skeleton; migrations and feature logic are not yet generated.
+- Scoring behavior should be tuned exclusively through `config/scoring.php` + env overrides.
+- Architecture keeps modules decoupled so crawler/backend integrations can evolve independently.
