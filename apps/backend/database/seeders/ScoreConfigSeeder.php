@@ -18,12 +18,12 @@ class ScoreConfigSeeder extends Seeder
             [
                 'is_active' => true,
                 'weights' => [
-                    'platform_confidence' => 25,
-                    'product_page_presence' => 20,
-                    'checkout_detection' => 20,
-                    'contact_page_presence' => 10,
-                    'technology_signal' => 15,
-                    'crawl_freshness' => 10,
+                    'seo_gap_score' => 20,
+                    'plugin_script_bloat_score' => 15,
+                    'custom_stack_complexity_score' => 15,
+                    'ecommerce_maturity_score' => 20,
+                    'erp_automation_fit_score' => 20,
+                    'platform_fit_score' => 10,
                 ],
                 'thresholds' => [
                     'hot' => 80,
