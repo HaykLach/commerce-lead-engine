@@ -22,12 +22,18 @@ class LeadsByPlatformWidget extends StatsOverviewWidget
 
         if ($platformRows->isEmpty()) {
             return [
-                Stat::make('Leads by Platform', 'No platform data yet'),
+                Stat::make('Leads by Platform', 'No platform data yet')
+                    ->description('Run crawls to populate this view')
+                    ->color('gray'),
             ];
         }
 
         return $platformRows
-            ->map(fn (Domain $row) => Stat::make((string) $row->platform, number_format((int) $row->total)))
+            ->map(
+                fn (Domain $row) => Stat::make((string) $row->platform, number_format((int) $row->total))
+                    ->description('Detected domains')
+                    ->color('primary'),
+            )
             ->all();
     }
 }

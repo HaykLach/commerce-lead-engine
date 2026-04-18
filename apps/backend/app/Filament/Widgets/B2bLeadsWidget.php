@@ -17,7 +17,9 @@ class B2bLeadsWidget extends StatsOverviewWidget
             ->count();
 
         return [
-            Stat::make('B2B Leads', number_format($count)),
+            Stat::make('B2B Leads', number_format($count))
+                ->description('Domains tagged as B2B')
+                ->color('success'),
         ];
     }
 }
