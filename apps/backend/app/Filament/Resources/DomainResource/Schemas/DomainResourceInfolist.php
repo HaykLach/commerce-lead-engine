@@ -54,13 +54,14 @@ class DomainResourceInfolist
                     IconEntry::make('has_contact_page')->label('Contact Page Found')->boolean()->state(fn (Domain $record): bool => self::hasPageType($record, PageType::Contact->value)),
                 ])
                 ->columns(3),
-            Section::make('Fingerprint Data')
+            Section::make('Latest Fingerprint')
                 ->schema([
-                    TextEntry::make('latestMetric.platform')->label('Detected Platform')->badge()->placeholder('unknown'),
-                    TextEntry::make('latestMetric.confidence')->label('Confidence')->badge(),
-                    TextEntry::make('latestMetric.signal_summary.matched_signals')->label('Matched Signals')->badge()->separator(',')->listWithLineBreaks(),
-                    KeyValueEntry::make('latestMetric.raw_signals')->label('Raw Signal Summary')->columnSpanFull(),
-                    TextEntry::make('metadata.whatweb_summary')->label('WhatWeb Summary')->columnSpanFull()->placeholder('Not available'),
+                    TextEntry::make('latestFingerprint.platform')->label('Detected Platform')->badge()->placeholder('unknown'),
+                    TextEntry::make('latestFingerprint.confidence')->label('Confidence')->badge()->placeholder('—'),
+                    TextEntry::make('latestFingerprint.frontend_stack')->label('Frontend Stack')->badge()->separator(',')->listWithLineBreaks()->placeholder('—'),
+                    TextEntry::make('latestFingerprint.detected_at')->label('Detected At')->since()->placeholder('—'),
+                    TextEntry::make('latestFingerprint.signals')->label('Signals')->badge()->separator(',')->listWithLineBreaks()->placeholder('—')->columnSpanFull(),
+                    KeyValueEntry::make('latestFingerprint.whatweb_payload')->label('WhatWeb Summary')->columnSpanFull()->placeholder('Not available'),
                 ])
                 ->columns(2),
             Section::make('Source History')

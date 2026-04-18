@@ -35,7 +35,7 @@ def test_get_next_job_returns_payload_on_200(monkeypatch):
     }
 
     def fake_request(**kwargs):
-        return DummyResponse(status_code=200, payload=expected, text='{"id": 15}')
+        return DummyResponse(status_code=200, payload={"data": expected}, text='{"id": 15}')
 
     monkeypatch.setattr(run_worker.requests, "request", fake_request)
 
@@ -57,3 +57,20 @@ def test_mark_job_completed_calls_new_internal_endpoint(monkeypatch):
     assert calls[0].url.endswith('/crawl-jobs/22/complete')
     assert calls[0].method == 'POST'
     assert calls[0].json == {"summary": {"pages": 3}}
+
+
+def test_normalize_domain_strips_scheme_and_www():
+    assert run_worker.normalize_domain("https://WWW.Example.com/") == "example.com"
+
+
+def test_infer_niche_detects_b2b_terms():
+    html = """
+    <html>
+      <head><title>Acme Wholesale Distributor</title></head>
+      <body>Request quote for bulk order. MOQ available for dealers.</body>
+    </html>
+    """
+    niche, scores = run_worker.infer_niche(html, {"description": "RFQ and reseller trade portal"})
+
+    assert niche == "b2b"
+    assert scores["b2b"] > 0
