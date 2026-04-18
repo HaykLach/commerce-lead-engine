@@ -1,35 +1,56 @@
 import time
 import json
+import os
 import requests
 
 from lead_crawler.services.homepage_fetch_service import HomepageFetchService
 from lead_crawler.services.whatweb_runner_service import WhatWebRunnerService
 from lead_crawler.fingerprint.rule_engine import FingerprintRuleEngine
 
-LARAVEL_API = "http://nginx/internal"  # IMPORTANT (see below)
+LARAVEL_API_BASE = os.getenv("LARAVEL_API_BASE", "http://nginx/api/v1/internal")
+
+
+def _log_response(label, response):
+    print(f"[Worker] {label} -> status={response.status_code}")
+    if response.status_code != 204:
+        body = response.text.strip()
+        if body:
+            print(f"[Worker] {label} -> body={body}")
+
+
+def _api_request(method, path, **kwargs):
+    url = f"{LARAVEL_API_BASE}{path}"
+    print(f"[Worker] {method.upper()} {url}")
+    response = requests.request(method=method.upper(), url=url, timeout=30, **kwargs)
+    _log_response(path, response)
+    return response
 
 def get_next_job():
     try:
-        res = requests.get(f"{LARAVEL_API}/jobs/next")
+        res = _api_request("get", "/crawl-jobs/next")
+        if res.status_code == 204:
+            print("[Worker] No queued crawl jobs available")
+            return None
         if res.status_code == 200:
             return res.json()
+        print(f"[Worker] Unexpected response while fetching next job: {res.status_code}")
     except Exception as e:
         print("Error fetching job:", e)
     return None
 
 
 def mark_job_started(job_id):
-    requests.post(f"{LARAVEL_API}/jobs/{job_id}/start")
+    _api_request("post", f"/crawl-jobs/{job_id}/start")
 
 
 def mark_job_completed(job_id, summary):
-    requests.post(f"{LARAVEL_API}/jobs/{job_id}/complete", json={
+    _api_request("post", f"/crawl-jobs/{job_id}/complete", json={
         "summary": summary
     })
 
 
 def mark_job_failed(job_id, error):
-    requests.post(f"{LARAVEL_API}/jobs/{job_id}/fail", json={
+    _api_request("post", f"/crawl-jobs/{job_id}/fail", json={
         "error": str(error)
     })
 

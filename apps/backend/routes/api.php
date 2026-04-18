@@ -27,6 +27,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/domain-metrics', [DomainMetricController::class, 'store']);
         Route::post('/lead-scores', [LeadScoreController::class, 'store']);
         Route::post('/crawl-jobs', [CrawlJobController::class, 'store']);
+        Route::get('/crawl-jobs/next', [CrawlJobController::class, 'next']);
+        Route::post('/crawl-jobs/{crawlJob}/start', [CrawlJobController::class, 'start']);
+        Route::post('/crawl-jobs/{crawlJob}/complete', [CrawlJobController::class, 'complete']);
+        Route::post('/crawl-jobs/{crawlJob}/fail', [CrawlJobController::class, 'fail']);
         Route::get('/leads', [LeadController::class, 'index']);
     });
 });
