@@ -74,3 +74,88 @@ def test_infer_niche_detects_b2b_terms():
 
     assert niche == "b2b"
     assert scores["b2b"] > 0
+
+
+def test_process_page_classification_persists_summary(monkeypatch):
+    captured = {}
+
+    class FakePageClassificationService:
+        def classify_domain(self, domain: str, max_pages: int = 12):
+            assert domain == "example.com"
+            assert max_pages == 10
+            return SimpleNamespace(
+                domain=domain,
+                product_page_found=True,
+                category_page_found=True,
+                cart_page_found=True,
+                checkout_page_found=False,
+                sample_product_url="https://example.com/products/sku-1",
+                sample_category_url="https://example.com/collections/main",
+                sample_cart_url="https://example.com/cart",
+                sample_checkout_url=None,
+                product_count_guess=240,
+                product_count_bucket="201-1000",
+                classification_metadata={"sampled_urls": ["https://example.com/"]},
+                classified_at="2026-04-18T00:00:00Z",
+            )
+
+    def fake_persist(job, domain_snapshot, classification):
+        captured["job"] = job
+        captured["domain_snapshot"] = domain_snapshot
+        captured["classification"] = classification
+
+    monkeypatch.setattr(run_worker, "PageClassificationService", FakePageClassificationService)
+    monkeypatch.setattr(run_worker, "persist_page_classification", fake_persist)
+
+    result = run_worker.process_page_classification(
+        {
+            "id": 200,
+            "domain_id": 15,
+            "crawl_payload": {
+                "job_type": "page_classification",
+                "domain": "example.com",
+                "max_pages": 10,
+            },
+        }
+    )
+
+    assert result["job_type"] == "page_classification"
+    assert result["product_count_guess"] == 240
+    assert captured["domain_snapshot"]["id"] == 15
+
+
+def test_process_homepage_fetch_enqueues_page_classification(monkeypatch):
+    class FakeHomepageFetchService:
+        def fetch(self, domain):
+            return {
+                "final_url": f"https://{domain}",
+                "status_code": 200,
+                "html": "<html></html>",
+                "meta": {},
+                "scripts": [],
+                "stylesheets": [],
+                "links": [],
+            }
+
+    class FakeWhatWebService:
+        def scan(self, domain):
+            return SimpleNamespace(target_url=f"https://{domain}", plugins=[], raw_payload={}, error=None)
+
+    class FakeEngine:
+        def detect(self, _):
+            return {"platform": "shopify", "confidence": 90, "signals": []}
+
+    enqueue_calls = []
+
+    monkeypatch.setattr(run_worker, "HomepageFetchService", FakeHomepageFetchService)
+    monkeypatch.setattr(run_worker, "WhatWebRunnerService", lambda: FakeWhatWebService())
+    monkeypatch.setattr(run_worker, "FingerprintRuleEngine", lambda: FakeEngine())
+    monkeypatch.setattr(run_worker, "persist_domain_snapshot", lambda *_: {"id": 44, "normalized_domain": "example.com"})
+    monkeypatch.setattr(run_worker, "persist_fingerprint_record", lambda *_: None)
+    monkeypatch.setattr(run_worker, "enqueue_page_classification_job", lambda *args: enqueue_calls.append(args))
+
+    summary = run_worker.process_homepage_fetch({"id": 50, "trigger_type": "manual", "crawl_payload": {"job_type": "homepage_fetch", "domain": "example.com"}})
+
+    assert summary["domain_id"] == 44
+    assert summary["enqueued_page_classification"] is True
+    assert len(enqueue_calls) == 1

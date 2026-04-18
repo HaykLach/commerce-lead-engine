@@ -74,6 +74,11 @@ class Domain extends BaseModel
         return $this->hasOne(DomainMetric::class)->latestOfMany('measured_at');
     }
 
+    public function latestPageClassification(): HasOne
+    {
+        return $this->hasOne(PageClassification::class)->latestOfMany('classified_at');
+    }
+
     public function leadScores(): HasMany
     {
         return $this->hasMany(LeadScore::class);

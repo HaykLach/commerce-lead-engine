@@ -51,6 +51,7 @@ class DomainResource extends Resource
             'sources',
             'crawlJobs',
             'pageClassifications',
+            'latestPageClassification',
         ]);
     }
 
