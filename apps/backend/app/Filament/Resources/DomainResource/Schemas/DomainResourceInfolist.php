@@ -32,10 +32,7 @@ class DomainResourceInfolist
                         TextEntry::make('country')->placeholder('—'),
                         TextEntry::make('niche')->placeholder('—'),
                         TextEntry::make('business_model')->placeholder('—'),
-                        TextEntry::make('metadata.product_count_guess')
-                            ->label('Product Count Guess')
-                            ->state(fn (Domain $record): ?string => self::normalizeText(data_get($record->metadata, 'product_count_guess')))
-                            ->placeholder('—'),
+                        TextEntry::make('metadata.product_count_guess')->label('Product Count Guess')->placeholder('—'),
                         TextEntry::make('metadata.contact_url')
                             ->label('Contact URL')
                             ->state(fn (Domain $record): ?string => self::normalizeText(data_get($record->metadata, 'contact_url')))
@@ -60,10 +57,7 @@ class DomainResourceInfolist
             Section::make('Score Data')
                 ->schema([
                     TextEntry::make('latestLeadScore.opportunity_score')->label('Opportunity Score')->badge(),
-                    KeyValueEntry::make('latestLeadScore.score_breakdown')
-                        ->label('Score Breakdown')
-                        ->state(fn (Domain $record): array => self::normalizeKeyValue($record->latestLeadScore?->score_breakdown))
-                        ->columnSpanFull(),
+                    KeyValueEntry::make('latestLeadScore.score_breakdown')->label('Score Breakdown')->columnSpanFull(),
                     TextEntry::make('latestLeadScore.score_reasons')
                         ->label('Score Reasons')
                         ->state(fn (Domain $record): array => self::normalizeList($record->latestLeadScore?->score_reasons))
@@ -103,16 +97,8 @@ class DomainResourceInfolist
                         ->listWithLineBreaks()
                         ->placeholder('—')
                         ->columnSpanFull(),
-                    KeyValueEntry::make('latestFingerprint.whatweb_payload')
-                        ->label('WhatWeb Summary')
-                        ->state(fn (Domain $record): array => self::normalizeKeyValue($record->latestFingerprint?->whatweb_payload))
-                        ->columnSpanFull()
-                        ->placeholder('Not available'),
-                    KeyValueEntry::make('latestFingerprint.raw_payload')
-                        ->label('Raw Fingerprint Payload')
-                        ->state(fn (Domain $record): array => self::normalizeKeyValue($record->latestFingerprint?->raw_payload))
-                        ->columnSpanFull()
-                        ->placeholder('Not available'),
+                    KeyValueEntry::make('latestFingerprint.whatweb_payload')->label('WhatWeb Summary')->columnSpanFull()->placeholder('Not available'),
+                    KeyValueEntry::make('latestFingerprint.raw_payload')->label('Raw Fingerprint Payload')->columnSpanFull()->placeholder('Not available'),
                 ])
                 ->columns(2),
             Section::make('Source History')
@@ -196,47 +182,5 @@ class DomainResourceInfolist
         });
 
         return array_values(array_unique($normalized));
-    }
-
-    private static function normalizeKeyValue(mixed $value): array
-    {
-        if (! is_array($value)) {
-            return [];
-        }
-
-        $normalized = [];
-
-        foreach ($value as $key => $item) {
-            if (! is_scalar($key)) {
-                continue;
-            }
-
-            $normalized[(string) $key] = self::normalizeKeyValueItem($item);
-        }
-
-        return $normalized;
-    }
-
-    private static function normalizeKeyValueItem(mixed $item): ?string
-    {
-        if ($item === null) {
-            return null;
-        }
-
-        if (is_scalar($item)) {
-            return (string) $item;
-        }
-
-        if (is_array($item)) {
-            return json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        }
-
-        if (is_object($item) && method_exists($item, '__toString')) {
-            return (string) $item;
-        }
-
-        $encoded = json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-        return $encoded === false ? null : $encoded;
     }
 }
