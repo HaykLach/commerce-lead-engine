@@ -47,6 +47,7 @@ class DomainResource extends Resource
         return parent::getEloquentQuery()->with([
             'latestLeadScore',
             'latestMetric',
+            'latestFingerprint',
             'sources',
             'crawlJobs',
             'pageClassifications',

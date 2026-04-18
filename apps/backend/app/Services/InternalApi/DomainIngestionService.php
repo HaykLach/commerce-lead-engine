@@ -11,7 +11,7 @@ class DomainIngestionService
 {
     public function upsert(array $payload): Domain
     {
-        $normalizedDomain = $this->normalizeDomain($payload['domain']);
+        $normalizedDomain = $this->normalizeDomain($payload['normalized_domain'] ?? $payload['domain']);
         $timestamp = Carbon::now();
 
         $attributes = [
@@ -21,6 +21,7 @@ class DomainIngestionService
             'metadata' => $payload['metadata'] ?? null,
             'first_seen_at' => $payload['first_seen_at'] ?? $timestamp,
             'last_seen_at' => $payload['last_seen_at'] ?? $timestamp,
+            'last_crawled_at' => $payload['last_crawled_at'] ?? null,
         ];
 
         foreach (['status', 'platform', 'country', 'niche', 'business_model'] as $field) {

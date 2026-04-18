@@ -19,6 +19,7 @@ class UpsertDiscoveredDomainRequest extends FormRequest
     {
         return [
             'domain' => ['required', 'string', 'max:255'],
+            'normalized_domain' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'string', new Enum(DomainStatus::class)],
             'platform' => ['nullable', 'string', 'max:120'],
             'confidence' => ['nullable', 'numeric', 'between:0,100'],
@@ -28,6 +29,7 @@ class UpsertDiscoveredDomainRequest extends FormRequest
             'metadata' => ['nullable', 'array'],
             'first_seen_at' => ['nullable', 'date'],
             'last_seen_at' => ['nullable', 'date'],
+            'last_crawled_at' => ['nullable', 'date'],
         ];
     }
 }

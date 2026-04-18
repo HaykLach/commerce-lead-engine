@@ -59,6 +59,16 @@ class Domain extends BaseModel
         return $this->hasMany(DomainMetric::class);
     }
 
+    public function fingerprints(): HasMany
+    {
+        return $this->hasMany(Fingerprint::class);
+    }
+
+    public function latestFingerprint(): HasOne
+    {
+        return $this->hasOne(Fingerprint::class)->latestOfMany('detected_at');
+    }
+
     public function latestMetric(): HasOne
     {
         return $this->hasOne(DomainMetric::class)->latestOfMany('measured_at');

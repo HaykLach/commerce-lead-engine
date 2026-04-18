@@ -16,14 +16,31 @@ class StoreFingerprintRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'domain_id' => ['nullable', 'integer', 'exists:domains,id'],
+            'domain' => ['nullable', 'string', 'max:255'],
+            'name' => ['nullable', 'string', 'max:255'],
             'platform' => ['required', 'string', 'max:120'],
             'version' => ['nullable', 'string', 'max:120'],
             'priority' => ['nullable', 'integer', 'min:1', 'max:1000'],
             'confidence_weight' => ['nullable', 'numeric', 'between:0,100'],
-            'rules' => ['required', 'array'],
+            'confidence' => ['nullable', 'numeric', 'between:0,100'],
+            'rules' => ['nullable', 'array'],
+            'frontend_stack' => ['nullable', 'array'],
+            'signals' => ['nullable', 'array'],
+            'raw_payload' => ['nullable', 'array'],
+            'whatweb_payload' => ['nullable', 'array'],
             'metadata' => ['nullable', 'array'],
+            'detected_at' => ['nullable', 'date'],
             'is_active' => ['sometimes', 'boolean'],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator): void {
+            if (!$this->filled('domain_id') && !$this->filled('domain')) {
+                $validator->errors()->add('domain', 'Either domain_id or domain is required.');
+            }
+        });
     }
 }
