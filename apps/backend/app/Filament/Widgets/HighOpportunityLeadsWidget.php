@@ -17,7 +17,9 @@ class HighOpportunityLeadsWidget extends StatsOverviewWidget
             ->count();
 
         return [
-            Stat::make('High Opportunity Leads', number_format($highOpportunityCount)),
+            Stat::make('High Opportunity Leads', number_format($highOpportunityCount))
+                ->description('Opportunity score ≥ 70')
+                ->color('warning'),
         ];
     }
 }

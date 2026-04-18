@@ -12,8 +12,12 @@ class TotalLeadsWidget extends StatsOverviewWidget
 {
     protected function getStats(): array
     {
+        $totalLeads = Domain::query()->count();
+
         return [
-            Stat::make('Total Leads', number_format(Domain::query()->count())),
+            Stat::make('Total Leads', number_format($totalLeads))
+                ->description('All discovered lead domains')
+                ->color('primary'),
         ];
     }
 }

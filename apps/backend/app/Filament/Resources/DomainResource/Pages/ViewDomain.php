@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Filament\Resources\DomainResource\Pages;
 
 use App\Filament\Resources\DomainResource;
-use App\Models\Domain;
 use App\Services\Crawl\CrawlOrchestratorService;
 use Filament\Actions;
 use Filament\Notifications\Notification;
@@ -19,16 +18,16 @@ class ViewDomain extends ViewRecord
     {
         return [
             Actions\Action::make('recrawl')
-                ->label('Recrawl (placeholder)')
+                ->label('Recrawl')
                 ->icon('heroicon-o-arrow-path')
                 ->color('gray')
                 ->requiresConfirmation()
-                ->action(function (Domain $record): void {
-                    app(CrawlOrchestratorService::class)->dispatch($record->domain);
+                ->action(function (): void {
+                    app(CrawlOrchestratorService::class)->dispatch($this->getRecord()->domain);
 
                     Notification::make()
                         ->title('Recrawl request submitted')
-                        ->body('This is a placeholder action. Full queue orchestration remains in the crawl services.')
+                        ->body('Queue orchestration remains handled by the crawl services layer.')
                         ->success()
                         ->send();
                 }),

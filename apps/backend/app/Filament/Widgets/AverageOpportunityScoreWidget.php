@@ -15,7 +15,9 @@ class AverageOpportunityScoreWidget extends StatsOverviewWidget
         $average = (float) LeadScore::query()->avg('opportunity_score');
 
         return [
-            Stat::make('Average Opportunity Score', number_format($average, 2)),
+            Stat::make('Average Opportunity Score', number_format($average, 2))
+                ->description('Across all scored leads')
+                ->color('info'),
         ];
     }
 }
