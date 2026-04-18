@@ -47,4 +47,25 @@ class DomainIngestionControllerTest extends TestCase
         $this->assertSame(200, $domain->metadata['status_code']);
         $this->assertNotNull($domain->last_crawled_at);
     }
+
+    public function test_upsert_preserves_first_seen_at_for_existing_domain(): void
+    {
+        $domain = Domain::factory()->create([
+            'domain' => 'example.com',
+            'normalized_domain' => 'example.com',
+            'first_seen_at' => '2026-04-10T00:00:00Z',
+        ]);
+
+        $this->postJson('/api/v1/internal/domains/upsert', [
+            'domain' => 'https://example.com',
+            'normalized_domain' => 'example.com',
+            'first_seen_at' => '2026-04-18T00:00:00Z',
+            'last_seen_at' => '2026-04-18T00:00:00Z',
+        ])->assertOk();
+
+        $domain->refresh();
+
+        $this->assertSame('2026-04-10 00:00:00', $domain->first_seen_at?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-04-18 00:00:00', $domain->last_seen_at?->format('Y-m-d H:i:s'));
+    }
 }

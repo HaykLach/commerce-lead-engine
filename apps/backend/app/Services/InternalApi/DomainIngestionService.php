@@ -13,16 +13,21 @@ class DomainIngestionService
     {
         $normalizedDomain = $this->normalizeDomain($payload['normalized_domain'] ?? $payload['domain']);
         $timestamp = Carbon::now();
+        $domain = Domain::query()->firstOrNew(['normalized_domain' => $normalizedDomain]);
+        $isNew = ! $domain->exists;
 
         $attributes = [
-            'domain' => strtolower(trim($payload['domain'])),
+            'domain' => $normalizedDomain,
             'normalized_domain' => $normalizedDomain,
             'confidence' => $payload['confidence'] ?? 0,
             'metadata' => $payload['metadata'] ?? null,
-            'first_seen_at' => $payload['first_seen_at'] ?? $timestamp,
             'last_seen_at' => $payload['last_seen_at'] ?? $timestamp,
             'last_crawled_at' => $payload['last_crawled_at'] ?? null,
         ];
+
+        $attributes['first_seen_at'] = $isNew
+            ? ($payload['first_seen_at'] ?? $timestamp)
+            : ($domain->first_seen_at ?? $payload['first_seen_at'] ?? $timestamp);
 
         foreach (['status', 'platform', 'country', 'niche', 'business_model'] as $field) {
             if (array_key_exists($field, $payload)) {
@@ -30,10 +35,8 @@ class DomainIngestionService
             }
         }
 
-        $domain = Domain::query()->updateOrCreate(
-            ['normalized_domain' => $normalizedDomain],
-            $attributes,
-        );
+        $domain->fill($attributes);
+        $domain->save();
 
         return $domain->fresh();
     }

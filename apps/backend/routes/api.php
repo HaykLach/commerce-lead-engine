@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\Internal\CrawlJobController;
+use App\Http\Controllers\Api\Internal\DiscoveredDomainIngestionController;
 use App\Http\Controllers\Api\Internal\DomainIngestionController;
 use App\Http\Controllers\Api\Internal\DomainMetricController;
 use App\Http\Controllers\Api\Internal\FingerprintController;
@@ -22,6 +23,7 @@ Route::prefix('v1')->group(function (): void {
 
     Route::prefix('internal')->group(function (): void {
         Route::post('/domains/upsert', [DomainIngestionController::class, 'upsert']);
+        Route::post('/discovered-domains/ingest', [DiscoveredDomainIngestionController::class, 'store']);
         Route::post('/fingerprints', [FingerprintController::class, 'store']);
         Route::post('/page-classifications', [PageClassificationController::class, 'store']);
         Route::post('/domain-metrics', [DomainMetricController::class, 'store']);
