@@ -32,6 +32,7 @@ class StoreCrawlJobRequest extends FormRequest
             'next_crawl_at' => ['nullable', 'date'],
             'failure_reason' => ['nullable', 'string', 'max:255'],
             'crawl_payload' => ['nullable', 'array'],
+            'crawl_payload.job_type' => ['required_with:crawl_payload', 'string', 'max:100'],
             'crawl_summary' => ['nullable', 'array'],
         ];
     }

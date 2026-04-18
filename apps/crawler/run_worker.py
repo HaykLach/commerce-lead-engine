@@ -103,10 +103,20 @@ def run():
 
             mark_job_started(job_id)
 
-            if job["trigger_type"] == "homepage_fetch":
+            trigger_type = job.get("trigger_type")
+            payload = job.get("crawl_payload") or {}
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            job_type = payload.get("job_type")
+
+            print(
+                f"[Worker] Job metadata: trigger_type={trigger_type}, job_type={job_type}"
+            )
+
+            if job_type == "homepage_fetch":
                 result = process_homepage_fetch(job)
             else:
-                print(f"Unknown job type: {job['trigger_type']}")
+                print(f"Unknown job type: {job_type}")
                 result = {}
 
             mark_job_completed(job_id, result)

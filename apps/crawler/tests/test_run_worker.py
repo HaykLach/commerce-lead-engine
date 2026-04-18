@@ -30,8 +30,8 @@ def test_get_next_job_returns_payload_on_200(monkeypatch):
     expected = {
         "id": 15,
         "status": "queued",
-        "trigger_type": "homepage_fetch",
-        "crawl_payload": {"domain": "example.com"},
+        "trigger_type": "manual",
+        "crawl_payload": {"job_type": "homepage_fetch", "domain": "example.com"},
     }
 
     def fake_request(**kwargs):
