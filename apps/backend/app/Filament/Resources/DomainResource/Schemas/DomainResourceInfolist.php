@@ -6,12 +6,12 @@ namespace App\Filament\Resources\DomainResource\Schemas;
 
 use App\Enums\PageType;
 use App\Models\Domain;
-use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\KeyValueEntry;
 use Filament\Infolists\Components\RepeatableEntry;
-use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
 class DomainResourceInfolist

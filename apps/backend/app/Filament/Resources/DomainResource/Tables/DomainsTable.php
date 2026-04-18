@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\DomainResource\Tables;
 
 use App\Models\Domain;
+use App\Enums\DomainStatus;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\TextInput;
 use Filament\Tables\Columns\TextColumn;
@@ -34,12 +35,12 @@ class DomainsTable
                     ->sortable(),
                 TextColumn::make('status')
                     ->badge()
-                    ->color(fn (?string $state): string => match ($state) {
-                        'pending' => 'warning',
-                        'queued' => 'info',
-                        'crawling' => 'primary',
-                        'processed' => 'success',
-                        'failed' => 'danger',
+                    ->color(fn (?DomainStatus $state): string => match ($state) {
+                        DomainStatus::Pending => 'warning',
+                        DomainStatus::Queued => 'info',
+                        DomainStatus::Crawling => 'primary',
+                        DomainStatus::Processed => 'success',
+                        DomainStatus::Failed => 'danger',
                         default => 'gray',
                     })
                     ->sortable(),
@@ -81,10 +82,17 @@ class DomainsTable
                         TextInput::make('opportunity_max')->numeric()->minValue(0)->maxValue(100),
                     ])
                     ->query(function (Builder $query, array $data): Builder {
-                        return $query->whereHas('latestLeadScore', function (Builder $scoreQuery) use ($data): void {
+                        $min = $data['opportunity_min'] ?? null;
+                        $max = $data['opportunity_max'] ?? null;
+
+                        if ($min === null && $max === null) {
+                            return $query;
+                        }
+
+                        return $query->whereHas('latestLeadScore', function (Builder $scoreQuery) use ($min, $max): void {
                             $scoreQuery
-                                ->when($data['opportunity_min'] ?? null, fn (Builder $q, $value) => $q->where('opportunity_score', '>=', (float) $value))
-                                ->when($data['opportunity_max'] ?? null, fn (Builder $q, $value) => $q->where('opportunity_score', '<=', (float) $value));
+                                ->when($min !== null, fn (Builder $q) => $q->where('opportunity_score', '>=', (float) $min))
+                                ->when($max !== null, fn (Builder $q) => $q->where('opportunity_score', '<=', (float) $max));
                         });
                     }),
             ])

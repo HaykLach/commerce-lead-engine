@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-use App\Providers\Filament\InternalAdminPanelProvider;
+use App\Providers\Filament\AdminPanelProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withProviders([
-        InternalAdminPanelProvider::class,
+        AdminPanelProvider::class
     ])
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
