@@ -8,7 +8,7 @@ enum CrawlJobStatus: string
 {
     case Queued = 'queued';
     case Running = 'running';
-    case Succeeded = 'succeeded';
+    case Completed = 'completed';
     case Failed = 'failed';
     case Cancelled = 'cancelled';
 }
