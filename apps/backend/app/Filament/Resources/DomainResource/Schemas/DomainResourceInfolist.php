@@ -23,25 +23,54 @@ class DomainResourceInfolist
                 ->schema([
                     Grid::make(3)->schema([
                         TextEntry::make('domain'),
-                        TextEntry::make('metadata.homepage_url')->label('Homepage URL')->url(fn (?string $state) => $state, shouldOpenInNewTab: true),
+                        TextEntry::make('metadata.homepage_url')
+                            ->label('Homepage URL')
+                            ->state(fn (Domain $record): ?string => self::normalizeText(data_get($record->metadata, 'homepage_url')))
+                            ->url(fn (?string $state): ?string => $state, shouldOpenInNewTab: true),
                         TextEntry::make('platform')->badge()->placeholder('unknown'),
                         TextEntry::make('confidence')->badge()->color(fn (?string $state): string => (float) $state >= 75 ? 'success' : ((float) $state >= 45 ? 'warning' : 'danger')),
                         TextEntry::make('country')->placeholder('—'),
                         TextEntry::make('niche')->placeholder('—'),
                         TextEntry::make('business_model')->placeholder('—'),
-                        TextEntry::make('metadata.product_count_guess')->label('Product Count Guess')->placeholder('—'),
-                        TextEntry::make('metadata.contact_url')->label('Contact URL')->url(fn (?string $state) => $state, shouldOpenInNewTab: true)->placeholder('—'),
+                        TextEntry::make('metadata.product_count_guess')
+                            ->label('Product Count Guess')
+                            ->state(fn (Domain $record): ?string => self::normalizeText(data_get($record->metadata, 'product_count_guess')))
+                            ->placeholder('—'),
+                        TextEntry::make('metadata.contact_url')
+                            ->label('Contact URL')
+                            ->state(fn (Domain $record): ?string => self::normalizeText(data_get($record->metadata, 'contact_url')))
+                            ->url(fn (?string $state): ?string => $state, shouldOpenInNewTab: true)
+                            ->placeholder('—'),
                     ]),
-                    TextEntry::make('metadata.frontend_stack')->label('Frontend Stack')->badge()->separator(',')->listWithLineBreaks(),
-                    TextEntry::make('metadata.matched_signals')->label('Matched Signals')->badge()->separator(',')->listWithLineBreaks(),
+                    TextEntry::make('metadata.frontend_stack')
+                        ->label('Frontend Stack')
+                        ->state(fn (Domain $record): array => self::normalizeList(data_get($record->metadata, 'frontend_stack')))
+                        ->badge()
+                        ->separator(',')
+                        ->listWithLineBreaks(),
+                    TextEntry::make('metadata.matched_signals')
+                        ->label('Matched Signals')
+                        ->state(fn (Domain $record): array => self::normalizeList(data_get($record->metadata, 'matched_signals')))
+                        ->badge()
+                        ->separator(',')
+                        ->listWithLineBreaks(),
                     TextEntry::make('last_crawled_at')->label('Last Crawled')->since(),
                     TextEntry::make('updated_at')->label('Last Check')->since(),
                 ]),
             Section::make('Score Data')
                 ->schema([
                     TextEntry::make('latestLeadScore.opportunity_score')->label('Opportunity Score')->badge(),
-                    KeyValueEntry::make('latestLeadScore.score_breakdown')->label('Score Breakdown')->columnSpanFull(),
-                    TextEntry::make('latestLeadScore.score_reasons')->label('Score Reasons')->badge()->separator(',')->listWithLineBreaks()->columnSpanFull(),
+                    KeyValueEntry::make('latestLeadScore.score_breakdown')
+                        ->label('Score Breakdown')
+                        ->state(fn (Domain $record): array => self::normalizeKeyValue($record->latestLeadScore?->score_breakdown))
+                        ->columnSpanFull(),
+                    TextEntry::make('latestLeadScore.score_reasons')
+                        ->label('Score Reasons')
+                        ->state(fn (Domain $record): array => self::normalizeList($record->latestLeadScore?->score_reasons))
+                        ->badge()
+                        ->separator(',')
+                        ->listWithLineBreaks()
+                        ->columnSpanFull(),
                 ])
                 ->columns(1),
             Section::make('Page Classification')
@@ -58,11 +87,32 @@ class DomainResourceInfolist
                 ->schema([
                     TextEntry::make('latestFingerprint.platform')->label('Detected Platform')->badge()->placeholder('unknown'),
                     TextEntry::make('latestFingerprint.confidence')->label('Confidence')->badge()->placeholder('—'),
-                    TextEntry::make('latestFingerprint.frontend_stack')->label('Frontend Stack')->badge()->separator(',')->listWithLineBreaks()->placeholder('—'),
+                    TextEntry::make('latestFingerprint.frontend_stack')
+                        ->label('Frontend Stack')
+                        ->state(fn (Domain $record): array => self::normalizeList($record->latestFingerprint?->frontend_stack))
+                        ->badge()
+                        ->separator(',')
+                        ->listWithLineBreaks()
+                        ->placeholder('—'),
                     TextEntry::make('latestFingerprint.detected_at')->label('Detected At')->since()->placeholder('—'),
-                    TextEntry::make('latestFingerprint.signals')->label('Signals')->badge()->separator(',')->listWithLineBreaks()->placeholder('—')->columnSpanFull(),
-                    KeyValueEntry::make('latestFingerprint.whatweb_payload')->label('WhatWeb Summary')->columnSpanFull()->placeholder('Not available'),
-                    KeyValueEntry::make('latestFingerprint.raw_payload')->label('Raw Fingerprint Payload')->columnSpanFull()->placeholder('Not available'),
+                    TextEntry::make('latestFingerprint.signals')
+                        ->label('Signals')
+                        ->state(fn (Domain $record): array => self::normalizeList($record->latestFingerprint?->signals))
+                        ->badge()
+                        ->separator(',')
+                        ->listWithLineBreaks()
+                        ->placeholder('—')
+                        ->columnSpanFull(),
+                    KeyValueEntry::make('latestFingerprint.whatweb_payload')
+                        ->label('WhatWeb Summary')
+                        ->state(fn (Domain $record): array => self::normalizeKeyValue($record->latestFingerprint?->whatweb_payload))
+                        ->columnSpanFull()
+                        ->placeholder('Not available'),
+                    KeyValueEntry::make('latestFingerprint.raw_payload')
+                        ->label('Raw Fingerprint Payload')
+                        ->state(fn (Domain $record): array => self::normalizeKeyValue($record->latestFingerprint?->raw_payload))
+                        ->columnSpanFull()
+                        ->placeholder('Not available'),
                 ])
                 ->columns(2),
             Section::make('Source History')
@@ -101,5 +151,92 @@ class DomainResourceInfolist
         return $record->pageClassifications->contains(
             fn ($classification) => $classification->page_type?->value === $pageType || $classification->page_type === $pageType,
         );
+    }
+
+    private static function normalizeText(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_scalar($value)) {
+            $normalized = trim((string) $value);
+
+            return $normalized === '' ? null : $normalized;
+        }
+
+        if (is_array($value)) {
+            return self::normalizeText(reset($value));
+        }
+
+        return null;
+    }
+
+    private static function normalizeList(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        $items = is_array($value) ? $value : [$value];
+        $normalized = [];
+
+        array_walk_recursive($items, function (mixed $item) use (&$normalized): void {
+            if (! is_scalar($item)) {
+                return;
+            }
+
+            $string = trim((string) $item);
+
+            if ($string === '') {
+                return;
+            }
+
+            $normalized[] = $string;
+        });
+
+        return array_values(array_unique($normalized));
+    }
+
+    private static function normalizeKeyValue(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($value as $key => $item) {
+            if (! is_scalar($key)) {
+                continue;
+            }
+
+            $normalized[(string) $key] = self::normalizeKeyValueItem($item);
+        }
+
+        return $normalized;
+    }
+
+    private static function normalizeKeyValueItem(mixed $item): ?string
+    {
+        if ($item === null) {
+            return null;
+        }
+
+        if (is_scalar($item)) {
+            return (string) $item;
+        }
+
+        if (is_array($item)) {
+            return json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        if (is_object($item) && method_exists($item, '__toString')) {
+            return (string) $item;
+        }
+
+        $encoded = json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $encoded === false ? null : $encoded;
     }
 }
