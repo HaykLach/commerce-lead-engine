@@ -79,7 +79,8 @@ class DomainResourceInfolist
                 ->schema([
                     RepeatableEntry::make('crawlJobs')
                         ->schema([
-                            TextEntry::make('trigger_type')->label('Job Type')->badge(),
+                            TextEntry::make('trigger_type')->label('Trigger Type')->badge(),
+                            TextEntry::make('crawl_payload.job_type')->label('Worker Job Type')->badge()->placeholder('—'),
                             TextEntry::make('status')->badge(),
                             TextEntry::make('scheduled_at')->dateTime()->placeholder('—'),
                             TextEntry::make('started_at')->dateTime()->placeholder('—'),

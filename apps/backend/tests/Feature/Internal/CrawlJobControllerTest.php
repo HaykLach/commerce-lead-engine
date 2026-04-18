@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Internal;
 
 use App\Enums\CrawlJobStatus;
+use App\Enums\CrawlTriggerType;
 use App\Models\CrawlJob;
 use App\Models\Domain;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -40,7 +41,8 @@ class CrawlJobControllerTest extends TestCase
         $this->getJson('/api/v1/internal/crawl-jobs/next')
             ->assertOk()
             ->assertJsonPath('data.id', $expectedJob->id)
-            ->assertJsonPath('data.status', CrawlJobStatus::Queued->value);
+            ->assertJsonPath('data.status', CrawlJobStatus::Queued->value)
+            ->assertJsonPath('data.trigger_type', CrawlTriggerType::Discovery->value);
     }
 
     public function test_start_updates_status_and_started_at(): void
@@ -116,5 +118,41 @@ class CrawlJobControllerTest extends TestCase
         $this->assertSame(CrawlJobStatus::Failed, $crawlJob->status);
         $this->assertNotNull($crawlJob->finished_at);
         $this->assertSame($errorMessage, $crawlJob->failure_reason);
+    }
+
+    public function test_store_rejects_worker_stage_as_trigger_type(): void
+    {
+        $domain = Domain::factory()->create();
+
+        $this->postJson('/api/v1/internal/crawl-jobs', [
+            'domain_id' => $domain->id,
+            'trigger_type' => 'homepage_fetch',
+            'crawl_payload' => [
+                'domain' => $domain->domain,
+            ],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['trigger_type', 'crawl_payload.job_type']);
+    }
+
+    public function test_store_accepts_trigger_type_metadata_with_payload_job_type(): void
+    {
+        $domain = Domain::factory()->create();
+
+        $response = $this->postJson('/api/v1/internal/crawl-jobs', [
+            'domain_id' => $domain->id,
+            'trigger_type' => CrawlTriggerType::Manual->value,
+            'crawl_payload' => [
+                'job_type' => 'homepage_fetch',
+                'domain' => $domain->domain,
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.trigger_type', CrawlTriggerType::Manual->value)
+            ->assertJsonPath('data.crawl_payload.job_type', 'homepage_fetch');
+
+        $crawlJobId = $response->json('data.id');
+        $crawlJob = CrawlJob::query()->findOrFail($crawlJobId);
+
+        $this->assertSame(CrawlTriggerType::Manual, $crawlJob->trigger_type);
+        $this->assertSame('homepage_fetch', $crawlJob->crawl_payload['job_type']);
     }
 }
