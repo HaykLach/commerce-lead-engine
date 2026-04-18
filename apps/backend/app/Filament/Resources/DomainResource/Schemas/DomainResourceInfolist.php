@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\DomainResource\Schemas;
 
-use App\Enums\PageType;
 use App\Models\Domain;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\KeyValueEntry;
@@ -75,14 +74,19 @@ class DomainResourceInfolist
                 ->columns(1),
             Section::make('Page Classification')
                 ->schema([
-                    IconEntry::make('has_homepage')->label('Homepage')->boolean()->state(fn (Domain $record): bool => self::hasPageType($record, PageType::Home->value)),
-                    IconEntry::make('has_product_page')->label('Product Page Found')->boolean()->state(fn (Domain $record): bool => self::hasPageType($record, PageType::Product->value)),
-                    IconEntry::make('has_category_page')->label('Category Page Found')->boolean()->state(fn (Domain $record): bool => self::hasPageType($record, PageType::Collection->value)),
-                    IconEntry::make('has_cart_page')->label('Cart Page Found')->boolean()->state(fn (Domain $record): bool => self::hasPageType($record, PageType::Cart->value)),
-                    IconEntry::make('has_checkout_page')->label('Checkout Page Found')->boolean()->state(fn (Domain $record): bool => self::hasPageType($record, PageType::Checkout->value)),
-                    IconEntry::make('has_contact_page')->label('Contact Page Found')->boolean()->state(fn (Domain $record): bool => self::hasPageType($record, PageType::Contact->value)),
+                    IconEntry::make('latestPageClassification.product_page_found')->label('Product Page Found')->boolean()->placeholder('—'),
+                    IconEntry::make('latestPageClassification.category_page_found')->label('Category Page Found')->boolean()->placeholder('—'),
+                    IconEntry::make('latestPageClassification.cart_page_found')->label('Cart Page Found')->boolean()->placeholder('—'),
+                    IconEntry::make('latestPageClassification.checkout_page_found')->label('Checkout Page Found')->boolean()->placeholder('—'),
+                    TextEntry::make('latestPageClassification.sample_product_url')->label('Sample Product URL')->url(fn (?string $state): ?string => $state, shouldOpenInNewTab: true)->placeholder('—'),
+                    TextEntry::make('latestPageClassification.sample_category_url')->label('Sample Category URL')->url(fn (?string $state): ?string => $state, shouldOpenInNewTab: true)->placeholder('—'),
+                    TextEntry::make('latestPageClassification.sample_cart_url')->label('Sample Cart URL')->url(fn (?string $state): ?string => $state, shouldOpenInNewTab: true)->placeholder('—'),
+                    TextEntry::make('latestPageClassification.sample_checkout_url')->label('Sample Checkout URL')->url(fn (?string $state): ?string => $state, shouldOpenInNewTab: true)->placeholder('—'),
+                    TextEntry::make('latestPageClassification.product_count_guess')->label('Product Count Guess')->placeholder('—'),
+                    TextEntry::make('latestPageClassification.product_count_bucket')->label('Product Count Bucket')->badge()->placeholder('—'),
+                    TextEntry::make('latestPageClassification.classified_at')->label('Classified At')->since()->placeholder('—'),
                 ])
-                ->columns(3),
+                ->columns(2),
             Section::make('Latest Fingerprint')
                 ->schema([
                     TextEntry::make('latestFingerprint.platform')->label('Detected Platform')->badge()->placeholder('unknown'),
@@ -144,13 +148,6 @@ class DomainResourceInfolist
                         ->columnSpanFull(),
                 ]),
         ]);
-    }
-
-    private static function hasPageType(Domain $record, string $pageType): bool
-    {
-        return $record->pageClassifications->contains(
-            fn ($classification) => $classification->page_type?->value === $pageType || $classification->page_type === $pageType,
-        );
     }
 
     private static function normalizeText(mixed $value): ?string

@@ -10,6 +10,7 @@ import requests
 from lead_crawler.services.homepage_fetch_service import HomepageFetchService
 from lead_crawler.services.whatweb_runner_service import WhatWebRunnerService
 from lead_crawler.fingerprint.rule_engine import FingerprintRuleEngine
+from lead_crawler.services.page_classification_service import PageClassificationService
 
 LARAVEL_API_BASE = os.getenv("LARAVEL_API_BASE", "http://nginx/api/v1/internal")
 TLD_COUNTRY_HINTS = {
@@ -293,7 +294,90 @@ def process_homepage_fetch(job):
     domain_snapshot = persist_domain_snapshot(summary, result)
     persist_fingerprint_record(summary, domain_snapshot)
 
+    if payload.get("enqueue_page_classification", True):
+        enqueue_page_classification_job(job, domain_snapshot, domain)
+
+    summary["domain_id"] = domain_snapshot.get("id")
+    summary["enqueued_page_classification"] = payload.get("enqueue_page_classification", True)
+
     return summary
+
+
+
+def persist_page_classification(job, domain_snapshot, classification_result):
+    payload = {
+        "domain_id": domain_snapshot.get("id"),
+        "domain": domain_snapshot.get("normalized_domain") or classification_result.domain,
+        "crawl_job_id": job.get("id"),
+        "product_page_found": classification_result.product_page_found,
+        "category_page_found": classification_result.category_page_found,
+        "cart_page_found": classification_result.cart_page_found,
+        "checkout_page_found": classification_result.checkout_page_found,
+        "sample_product_url": classification_result.sample_product_url,
+        "sample_category_url": classification_result.sample_category_url,
+        "sample_cart_url": classification_result.sample_cart_url,
+        "sample_checkout_url": classification_result.sample_checkout_url,
+        "product_count_guess": classification_result.product_count_guess,
+        "product_count_bucket": classification_result.product_count_bucket,
+        "classification_metadata": classification_result.classification_metadata,
+        "classified_at": classification_result.classified_at,
+    }
+
+    response = _api_request("post", "/page-classifications", json=payload)
+    if response.status_code not in (200, 201):
+        raise RuntimeError(f"Page classification persistence failed with status {response.status_code}")
+
+
+def enqueue_page_classification_job(job, domain_snapshot, domain):
+    payload = {
+        "domain_id": domain_snapshot.get("id"),
+        "trigger_type": job.get("trigger_type") or "manual",
+        "recrawl_of_job_id": job.get("id"),
+        "crawl_payload": {
+            "job_type": "page_classification",
+            "domain": domain,
+        },
+    }
+
+    response = _api_request("post", "/crawl-jobs", json=payload)
+    if response.status_code not in (200, 201):
+        raise RuntimeError(f"Page classification job enqueue failed with status {response.status_code}")
+
+
+def process_page_classification(job):
+    payload = job.get("crawl_payload") or {}
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+
+    domain = payload.get("domain")
+    if not domain:
+        raise ValueError("crawl_payload.domain is missing")
+
+    domain_snapshot = payload.get("domain_snapshot") or {
+        "id": job.get("domain_id"),
+        "normalized_domain": normalize_domain(domain),
+    }
+
+    classifier = PageClassificationService()
+    classification = classifier.classify_domain(domain=domain, max_pages=int(payload.get("max_pages", 12)))
+
+    persist_page_classification(job, domain_snapshot, classification)
+
+    return {
+        "domain": domain,
+        "job_type": "page_classification",
+        "product_page_found": classification.product_page_found,
+        "category_page_found": classification.category_page_found,
+        "cart_page_found": classification.cart_page_found,
+        "checkout_page_found": classification.checkout_page_found,
+        "sample_product_url": classification.sample_product_url,
+        "sample_category_url": classification.sample_category_url,
+        "sample_cart_url": classification.sample_cart_url,
+        "sample_checkout_url": classification.sample_checkout_url,
+        "product_count_guess": classification.product_count_guess,
+        "product_count_bucket": classification.product_count_bucket,
+    }
+
 
 def normalize_fingerprint_result(fingerprint):
     if fingerprint is None:
@@ -373,6 +457,8 @@ def run():
 
             if job_type == "homepage_fetch":
                 result = process_homepage_fetch(job)
+            elif job_type == "page_classification":
+                result = process_page_classification(job)
             else:
                 raise ValueError(f"Unknown job type: {job_type}")
 

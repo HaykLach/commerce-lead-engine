@@ -18,7 +18,7 @@ def _fixture(name: str) -> str:
 @pytest.mark.parametrize(
     ("fixture_name", "url", "expected_type", "expected_reason"),
     [
-        ("product", "https://example.com/products/running-shoe", "product_page_found", "sku_or_schema_detected"),
+        ("product", "https://example.com/products/running-shoe", "product_page_found", "sku_or_price_schema_detected"),
         ("category", "https://example.com/collections/running-shoes", "category_page_found", "product_grid_pattern_detected"),
         ("cart", "https://example.com/cart", "cart_page_found", "line_items_and_subtotal_signals_detected"),
         ("checkout", "https://example.com/checkout", "checkout_page_found", "shipping_payment_address_form_signals_detected"),
@@ -47,3 +47,39 @@ def test_classifier_detects_homepage() -> None:
     assert result.is_homepage is True
     assert result.url == "https://example.com/"
     assert isinstance(result.matched_reasons, dict)
+
+
+def test_estimate_product_count_prefers_explicit_listing_text() -> None:
+    classifier = PageClassifier()
+
+    html_documents = ["<div>Showing 1-24 of 532 products</div>"]
+
+    assert classifier.estimate_product_count(html_documents) == 532
+
+
+def test_estimate_product_count_uses_pagination_and_grid_size() -> None:
+    classifier = PageClassifier()
+
+    html = """
+    <div class='product-card'></div><div class='product-card'></div><div class='product-card'></div>
+    <div class='product-card'></div><div class='product-card'></div><div class='product-card'></div>
+    <a href='?page=2'>Page 2</a><a href='?page=3'>Page 3</a><a href='?page=4'>Page 4</a>
+    """
+
+    assert classifier.estimate_product_count([html]) == 24
+
+
+@pytest.mark.parametrize(
+    ("count", "bucket"),
+    [
+        (12, "1-50"),
+        (51, "51-200"),
+        (450, "201-1000"),
+        (1200, "1000+"),
+        (None, None),
+    ],
+)
+def test_bucket_product_count(count: int | None, bucket: str | None) -> None:
+    classifier = PageClassifier()
+
+    assert classifier.bucket_product_count(count) == bucket
