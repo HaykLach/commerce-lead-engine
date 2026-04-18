@@ -6,6 +6,8 @@ RUN apt-get update \
         curl \
         git \
         whatweb \
+        pkg-config \
+        default-libmysqlclient-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PIP_NO_CACHE_DIR=1 \

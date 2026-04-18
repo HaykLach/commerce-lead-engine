@@ -7,6 +7,7 @@ namespace App\Filament\Resources;
 use App\Enums\PageType;
 use App\Filament\Resources\DomainResource\Pages;
 use App\Models\Domain;
+use BackedEnum;
 use Filament\Forms\Form;
 use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Components\IconEntry;
@@ -34,9 +35,9 @@ class DomainResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Lead Domains';
 
-    public static function form(Form $form): Form
+    public static function form(Filament\Schemas\Schema $schema): Filament\Schemas\Schema
     {
-        return $form;
+        return $schema;
     }
 
 

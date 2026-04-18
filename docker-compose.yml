@@ -34,15 +34,14 @@ services:
     container_name: cle_mysql
     restart: unless-stopped
     ports:
-      - "${MYSQL_FORWARD_PORT:-33060}:3306"
+      - "33060:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-commerce_leads}
-      MYSQL_USER: ${MYSQL_USER:-app}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-app}
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: commerce_leads
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
     volumes:
       - mysql_data:/var/lib/mysql
-    command: --default-authentication-plugin=mysql_native_password
     networks:
       - app
 
@@ -51,7 +50,7 @@ services:
     container_name: cle_redis
     restart: unless-stopped
     ports:
-      - "${REDIS_FORWARD_PORT:-63790}:6379"
+      - "63790:6379"
     volumes:
       - redis_data:/data
     networks:
