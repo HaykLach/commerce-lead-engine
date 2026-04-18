@@ -3,7 +3,6 @@ import json
 import os
 import re
 from types import SimpleNamespace
-from urllib.parse import urlparse
 
 import requests
 
@@ -11,6 +10,10 @@ from lead_crawler.services.homepage_fetch_service import HomepageFetchService
 from lead_crawler.services.whatweb_runner_service import WhatWebRunnerService
 from lead_crawler.fingerprint.rule_engine import FingerprintRuleEngine
 from lead_crawler.services.page_classification_service import PageClassificationService
+from lead_crawler.services.domain_normalizer import DomainNormalizer
+from lead_crawler.services.search_seed_discovery_service import SearchSeedDiscoveryService
+from lead_crawler.services.directory_discovery_service import DirectoryDiscoveryService
+from lead_crawler.services.expansion_discovery_service import ExpansionDiscoveryService
 
 LARAVEL_API_BASE = os.getenv("LARAVEL_API_BASE", "http://nginx/api/v1/internal")
 TLD_COUNTRY_HINTS = {
@@ -88,14 +91,8 @@ def mark_job_failed(job_id, error):
 
 
 def normalize_domain(domain):
-    candidate = (domain or "").strip().lower()
-    parsed = urlparse(candidate if "://" in candidate else f"https://{candidate}")
-    host = (parsed.netloc or parsed.path).strip().lower().strip("/")
-
-    if host.startswith("www."):
-        host = host[4:]
-
-    return host
+    normalizer = DomainNormalizer()
+    return normalizer.normalize(domain) or ""
 
 
 def _extract_country_hint_from_whatweb(whatweb_plugins):
@@ -426,6 +423,125 @@ def _to_json_serializable(value):
 
     return str(value)
 
+
+def ingest_discovered_domain(candidate, payload):
+    source_context = {
+        "keyword_seed": candidate.get("keyword_seed"),
+        "source_url": candidate.get("source_url"),
+        "discovery_job_type": payload.get("job_type"),
+    }
+
+    response = _api_request("post", "/discovered-domains/ingest", json={
+        "domain": candidate["domain"],
+        "normalized_domain": candidate["domain"],
+        "source_type": candidate["source_type"],
+        "source_name": payload.get("source_name") or f'{candidate["source_type"]}_discovery',
+        "source_reference": candidate.get("source_url"),
+        "source_context": {k: v for k, v in source_context.items() if v is not None},
+        "priority_homepage_fetch": int(payload.get("priority_homepage_fetch", 3)),
+        "priority_page_classification": int(payload.get("priority_page_classification", 5)),
+        "enqueue_homepage_fetch": payload.get("enqueue_homepage_fetch", True),
+        "enqueue_page_classification": payload.get("enqueue_page_classification", True),
+    })
+
+    if response.status_code not in (200, 201):
+        raise RuntimeError(f"Discovered domain ingest failed with status {response.status_code}")
+
+    body = response.json() if response.text else {}
+    return body.get("data") or {}
+
+
+def process_domain_discovery_search_seed(job):
+    payload = job.get("crawl_payload") or {}
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+
+    keywords = payload.get("keywords") or []
+    countries = payload.get("countries") or []
+    limit = int(payload.get("limit", 100))
+
+    service = SearchSeedDiscoveryService()
+    discovered = service.discover(keywords=keywords, countries=countries, limit=limit)
+
+    ingested = []
+    for candidate in discovered:
+        candidate_payload = {
+            "domain": candidate.domain,
+            "source_type": candidate.source_type,
+            "keyword_seed": candidate.keyword_seed,
+            "source_url": candidate.source_url,
+        }
+        ingest_discovered_domain(candidate_payload, payload)
+        ingested.append(candidate_payload)
+
+    return {
+        "job_type": "domain_discovery_search_seed",
+        "discovered_count": len(discovered),
+        "ingested_count": len(ingested),
+        "domains": ingested,
+    }
+
+
+def process_domain_discovery_directory(job):
+    payload = job.get("crawl_payload") or {}
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+
+    directory_urls = payload.get("directory_urls") or []
+    limit = int(payload.get("limit", 100))
+
+    service = DirectoryDiscoveryService()
+    discovered = service.discover(directory_urls=directory_urls, limit=limit)
+
+    ingested = []
+    for candidate in discovered:
+        candidate_payload = {
+            "domain": candidate.domain,
+            "source_type": candidate.source_type,
+            "keyword_seed": None,
+            "source_url": candidate.source_url,
+        }
+        ingest_discovered_domain(candidate_payload, payload)
+        ingested.append(candidate_payload)
+
+    return {
+        "job_type": "domain_discovery_directory",
+        "discovered_count": len(discovered),
+        "ingested_count": len(ingested),
+        "domains": ingested,
+    }
+
+
+def process_domain_discovery_expansion(job):
+    payload = job.get("crawl_payload") or {}
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+
+    domains = payload.get("domains") or []
+    limit = int(payload.get("limit", 50))
+
+    service = ExpansionDiscoveryService()
+    discovered = service.discover(domains=domains, limit=limit)
+
+    ingested = []
+    for candidate in discovered:
+        candidate_payload = {
+            "domain": candidate.domain,
+            "source_type": candidate.source_type,
+            "keyword_seed": candidate.keyword_seed,
+            "source_url": candidate.source_url,
+        }
+        ingest_discovered_domain(candidate_payload, payload)
+        ingested.append(candidate_payload)
+
+    return {
+        "job_type": "domain_discovery_expansion",
+        "discovered_count": len(discovered),
+        "ingested_count": len(ingested),
+        "domains": ingested,
+    }
+
+
 def run():
     print("🚀 Worker started...")
 
@@ -459,6 +575,12 @@ def run():
                 result = process_homepage_fetch(job)
             elif job_type == "page_classification":
                 result = process_page_classification(job)
+            elif job_type == "domain_discovery_search_seed":
+                result = process_domain_discovery_search_seed(job)
+            elif job_type == "domain_discovery_directory":
+                result = process_domain_discovery_directory(job)
+            elif job_type == "domain_discovery_expansion":
+                result = process_domain_discovery_expansion(job)
             else:
                 raise ValueError(f"Unknown job type: {job_type}")
 

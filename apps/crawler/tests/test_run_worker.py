@@ -159,3 +159,71 @@ def test_process_homepage_fetch_enqueues_page_classification(monkeypatch):
     assert summary["domain_id"] == 44
     assert summary["enqueued_page_classification"] is True
     assert len(enqueue_calls) == 1
+
+
+def test_process_domain_discovery_search_seed_ingests_domains(monkeypatch):
+    class FakeService:
+        def discover(self, keywords, countries, limit):
+            assert keywords == ["fashion"]
+            assert countries == ["de"]
+            assert limit == 2
+            return [
+                SimpleNamespace(domain="alpha.com", source_type="search_seed", keyword_seed="fashion de shop", source_url="https://search/a"),
+                SimpleNamespace(domain="beta.com", source_type="search_seed", keyword_seed="fashion de store", source_url="https://search/b"),
+            ]
+
+    ingested = []
+    monkeypatch.setattr(run_worker, "SearchSeedDiscoveryService", lambda: FakeService())
+    monkeypatch.setattr(run_worker, "ingest_discovered_domain", lambda candidate, payload: ingested.append((candidate, payload)))
+
+    result = run_worker.process_domain_discovery_search_seed({
+        "crawl_payload": {"job_type": "domain_discovery_search_seed", "keywords": ["fashion"], "countries": ["de"], "limit": 2}
+    })
+
+    assert result["job_type"] == "domain_discovery_search_seed"
+    assert result["ingested_count"] == 2
+    assert len(ingested) == 2
+
+
+def test_process_domain_discovery_directory_ingests_domains(monkeypatch):
+    class FakeService:
+        def discover(self, directory_urls, limit):
+            assert directory_urls == ["https://directory.example/list"]
+            assert limit == 1
+            return [
+                SimpleNamespace(domain="gamma.com", source_type="directory", keyword_seed=None, source_url="https://directory.example/list"),
+            ]
+
+    ingested = []
+    monkeypatch.setattr(run_worker, "DirectoryDiscoveryService", lambda: FakeService())
+    monkeypatch.setattr(run_worker, "ingest_discovered_domain", lambda candidate, payload: ingested.append((candidate, payload)))
+
+    result = run_worker.process_domain_discovery_directory({
+        "crawl_payload": {"job_type": "domain_discovery_directory", "directory_urls": ["https://directory.example/list"], "limit": 1}
+    })
+
+    assert result["job_type"] == "domain_discovery_directory"
+    assert result["ingested_count"] == 1
+    assert ingested[0][0]["domain"] == "gamma.com"
+
+
+def test_process_domain_discovery_expansion_ingests_domains(monkeypatch):
+    class FakeService:
+        def discover(self, domains, limit):
+            assert domains == ["seed.com"]
+            assert limit == 1
+            return [
+                SimpleNamespace(domain="delta.com", source_type="expansion", keyword_seed="seed.com", source_url="https://seed.com/partners"),
+            ]
+
+    ingested = []
+    monkeypatch.setattr(run_worker, "ExpansionDiscoveryService", lambda: FakeService())
+    monkeypatch.setattr(run_worker, "ingest_discovered_domain", lambda candidate, payload: ingested.append((candidate, payload)))
+
+    result = run_worker.process_domain_discovery_expansion({
+        "crawl_payload": {"job_type": "domain_discovery_expansion", "domains": ["seed.com"], "limit": 1}
+    })
+
+    assert result["job_type"] == "domain_discovery_expansion"
+    assert result["ingested_count"] == 1
+    assert ingested[0][0]["source_type"] == "expansion"
