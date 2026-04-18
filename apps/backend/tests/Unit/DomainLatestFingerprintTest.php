@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit;
 
 use App\Models\Domain;
-use App\Models\Fingerprint;
+use App\Models\DomainFingerprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -17,19 +17,17 @@ class DomainLatestFingerprintTest extends TestCase
     {
         $domain = Domain::factory()->create();
 
-        Fingerprint::query()->create([
+        DomainFingerprint::query()->create([
             'domain_id' => $domain->id,
-            'name' => 'fp-old',
             'platform' => 'woocommerce',
-            'rules' => [],
+            'confidence' => 51.2,
             'detected_at' => now()->subHour(),
         ]);
 
-        Fingerprint::query()->create([
+        DomainFingerprint::query()->create([
             'domain_id' => $domain->id,
-            'name' => 'fp-new',
             'platform' => 'shopify',
-            'rules' => [],
+            'confidence' => 92.9,
             'detected_at' => now(),
         ]);
 
@@ -37,6 +35,6 @@ class DomainLatestFingerprintTest extends TestCase
 
         $this->assertNotNull($latest);
         $this->assertSame('shopify', $latest->platform);
-        $this->assertSame('fp-new', $latest->name);
+        $this->assertSame('92.90', $latest->confidence);
     }
 }
