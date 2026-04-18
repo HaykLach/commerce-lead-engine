@@ -62,6 +62,7 @@ class DomainResourceInfolist
                     TextEntry::make('latestFingerprint.detected_at')->label('Detected At')->since()->placeholder('—'),
                     TextEntry::make('latestFingerprint.signals')->label('Signals')->badge()->separator(',')->listWithLineBreaks()->placeholder('—')->columnSpanFull(),
                     KeyValueEntry::make('latestFingerprint.whatweb_payload')->label('WhatWeb Summary')->columnSpanFull()->placeholder('Not available'),
+                    KeyValueEntry::make('latestFingerprint.raw_payload')->label('Raw Fingerprint Payload')->columnSpanFull()->placeholder('Not available'),
                 ])
                 ->columns(2),
             Section::make('Source History')

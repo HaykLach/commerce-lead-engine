@@ -5,34 +5,34 @@ declare(strict_types=1);
 namespace App\Services\InternalApi;
 
 use App\Models\Domain;
-use App\Models\Fingerprint;
+use App\Models\DomainFingerprint;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 
 class FingerprintIngestionService
 {
-    public function store(array $payload): Fingerprint
+    public function store(array $payload): DomainFingerprint
     {
         $domainId = $payload['domain_id'] ?? $this->resolveDomainId($payload['domain'] ?? null);
 
+        if ($domainId === null) {
+            throw ValidationException::withMessages([
+                'domain' => 'Unable to resolve domain. Provide a valid domain_id or known domain.',
+            ]);
+        }
+
         $attributes = [
             'domain_id' => $domainId,
-            'name' => $payload['name'] ?? sprintf('%s:%s', $payload['platform'], Carbon::now()->toIso8601String()),
             'platform' => $payload['platform'],
-            'version' => $payload['version'] ?? null,
-            'priority' => $payload['priority'] ?? 100,
-            'confidence_weight' => $payload['confidence_weight'] ?? 1,
-            'confidence' => $payload['confidence'] ?? null,
-            'rules' => $payload['rules'] ?? [],
+            'confidence' => $payload['confidence'] ?? 0,
             'frontend_stack' => $payload['frontend_stack'] ?? [],
             'signals' => $payload['signals'] ?? [],
             'raw_payload' => $payload['raw_payload'] ?? null,
             'whatweb_payload' => $payload['whatweb_payload'] ?? null,
-            'metadata' => $payload['metadata'] ?? null,
             'detected_at' => $payload['detected_at'] ?? Carbon::now(),
-            'is_active' => $payload['is_active'] ?? true,
         ];
 
-        return Fingerprint::query()->create($attributes)->fresh();
+        return DomainFingerprint::query()->create($attributes)->fresh();
     }
 
     private function resolveDomainId(?string $domain): ?int
