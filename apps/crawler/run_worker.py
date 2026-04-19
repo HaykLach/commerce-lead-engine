@@ -14,6 +14,11 @@ from lead_crawler.services.domain_normalizer import DomainNormalizer
 from lead_crawler.services.search_seed_discovery_service import SearchSeedDiscoveryService
 from lead_crawler.services.directory_discovery_service import DirectoryDiscoveryService
 from lead_crawler.services.expansion_discovery_service import ExpansionDiscoveryService
+from lead_crawler.services.common_crawl_athena_backend import CommonCrawlAthenaBackend, CommonCrawlAthenaConfig
+from lead_crawler.services.common_crawl_discovery_service import CommonCrawlDiscoveryService
+from lead_crawler.services.common_crawl_domain_filter import CommonCrawlDomainFilter
+from lead_crawler.services.common_crawl_duckdb_backend import CommonCrawlDuckDbBackend
+from lead_crawler.services.common_crawl_url_pattern_builder import CommonCrawlUrlPatternBuilder
 
 LARAVEL_API_BASE = os.getenv("LARAVEL_API_BASE", "http://nginx/api/v1/internal")
 TLD_COUNTRY_HINTS = {
@@ -430,6 +435,7 @@ def ingest_discovered_domain(candidate, payload):
         "source_url": candidate.get("source_url"),
         "discovery_job_type": payload.get("job_type"),
     }
+    source_context.update(candidate.get("source_context") or {})
 
     response = _api_request("post", "/discovered-domains/ingest", json={
         "domain": candidate["domain"],
@@ -541,6 +547,70 @@ def process_domain_discovery_expansion(job):
         "domains": ingested,
     }
 
+def _build_common_crawl_backend(payload):
+    backend_name = str(payload.get("backend", "duckdb")).strip().lower()
+
+    if backend_name == "duckdb":
+        return CommonCrawlDuckDbBackend(
+            database=str(payload.get("duckdb_database", ":memory:")),
+            dataset_path=payload.get("duckdb_dataset_path"),
+        ), backend_name
+
+    if backend_name == "athena":
+        config = CommonCrawlAthenaConfig(
+            database=str(payload.get("athena_database", "commoncrawl")),
+            table=str(payload.get("athena_table", "ccindex")),
+            output_location=str(payload.get("athena_output_location", "s3://change-me/athena-results/")),
+            region_name=str(payload.get("athena_region", "us-east-1")),
+            workgroup=payload.get("athena_workgroup"),
+        )
+        return CommonCrawlAthenaBackend(config=config), backend_name
+
+    raise ValueError(f"Unsupported Common Crawl backend: {backend_name}")
+
+
+def process_domain_discovery_common_crawl(job):
+    payload = job.get("crawl_payload") or {}
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+
+    patterns = CommonCrawlUrlPatternBuilder.normalize_patterns(payload.get("patterns"))
+    countries = payload.get("countries") or []
+    niches = payload.get("niches") or []
+    limit = int(payload.get("limit", 500))
+
+    backend, backend_name = _build_common_crawl_backend(payload)
+    domain_filter = CommonCrawlDomainFilter(set(payload.get("domain_denylist", [])))
+    service = CommonCrawlDiscoveryService(backend=backend, domain_filter=domain_filter)
+    discovered = service.discover(
+        patterns=patterns,
+        limit=limit,
+        countries=countries,
+        niches=niches,
+    )
+
+    ingested = []
+    for candidate in discovered:
+        candidate_payload = {
+            "domain": candidate.domain,
+            "source_type": candidate.source_type,
+            "keyword_seed": None,
+            "source_url": candidate.source_url,
+            "source_context": candidate.source_context,
+        }
+        ingest_discovered_domain(candidate_payload, payload)
+        ingested.append(candidate_payload)
+
+    return {
+        "job_type": "domain_discovery_common_crawl",
+        "backend": backend_name,
+        "patterns": patterns,
+        "discovered_count": len(discovered),
+        "ingested_count": len(ingested),
+        "domains": ingested,
+    }
+
+
 
 def run():
     print("🚀 Worker started...")
@@ -581,6 +651,8 @@ def run():
                 result = process_domain_discovery_directory(job)
             elif job_type == "domain_discovery_expansion":
                 result = process_domain_discovery_expansion(job)
+            elif job_type == "domain_discovery_common_crawl":
+                result = process_domain_discovery_common_crawl(job)
             else:
                 raise ValueError(f"Unknown job type: {job_type}")
 
