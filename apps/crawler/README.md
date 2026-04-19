@@ -7,3 +7,8 @@ This directory contains the Scrapy crawler skeleton for ecommerce lead discovery
 - `scrapy.cfg`: Scrapy project configuration entrypoint.
 - `lead_crawler/`: Scrapy project package.
 - `tests/`: Test package and fixtures for crawler components.
+
+
+## Discovery docs
+
+- Common Crawl discovery: `docs/common-crawl-discovery.md`

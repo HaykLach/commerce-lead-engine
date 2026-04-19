@@ -90,4 +90,35 @@ class DiscoveredDomainIngestionControllerTest extends TestCase
         $this->assertSame(1, $homepageJobs);
         $this->assertSame(1, $classificationJobs);
     }
+
+    public function test_ingest_accepts_common_crawl_source_type_and_context_metadata(): void
+    {
+        $response = $this->postJson('/api/v1/internal/discovered-domains/ingest', [
+            'domain' => 'tiny-shop.de',
+            'source_type' => 'common_crawl',
+            'source_name' => 'common_crawl_discovery',
+            'source_reference' => 'https://tiny-shop.de/products/item-1',
+            'source_context' => [
+                'matched_pattern' => '/products/',
+                'backend' => 'duckdb',
+                'crawl' => [
+                    'crawl' => 'CC-MAIN-2026-01',
+                ],
+            ],
+        ])->assertCreated();
+
+        $domainId = $response->json('data.domain.id');
+
+        $this->assertDatabaseHas('domain_sources', [
+            'domain_id' => $domainId,
+            'source_type' => 'common_crawl',
+            'source_name' => 'common_crawl_discovery',
+            'source_reference' => 'https://tiny-shop.de/products/item-1',
+        ]);
+
+        $source = DomainSource::query()->where('domain_id', $domainId)->firstOrFail();
+        $this->assertSame('/products/', $source->context['matched_pattern']);
+        $this->assertSame('duckdb', $source->context['backend']);
+    }
+
 }

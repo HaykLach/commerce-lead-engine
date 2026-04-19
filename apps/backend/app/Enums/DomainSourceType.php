@@ -15,4 +15,5 @@ enum DomainSourceType: string
     case Import = 'import';
     case Manual = 'manual';
     case Crawler = 'crawler';
+    case CommonCrawl = 'common_crawl';
 }
