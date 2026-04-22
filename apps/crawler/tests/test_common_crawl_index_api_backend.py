@@ -8,23 +8,35 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 # ---------------------------------------------------------------------------
-# Stub heavy optional dependencies before any project import
+# Stub heavy optional dependencies before any project import.
+#
+# _RequestException is *always* a real IOError subclass so it can be used as
+# a side_effect on mocks regardless of which requests stub is in sys.modules
+# (test_common_crawl_discovery.py installs a bare Mock() before us when pytest
+# collects files alphabetically, which would otherwise make the attribute a
+# non-exception Mock).
 # ---------------------------------------------------------------------------
 sys.modules.setdefault("bs4", Mock())
 
-# Provide a real-ish requests stub so RequestException is a proper class
 import types as _types
-
-_requests_stub = _types.ModuleType("requests")
 
 
 class _RequestException(IOError):
-    pass
+    """Real exception class used as requests.RequestException in every test."""
 
 
-_requests_stub.RequestException = _RequestException  # type: ignore[attr-defined]
-_requests_stub.get = Mock()  # type: ignore[attr-defined]
-sys.modules.setdefault("requests", _requests_stub)
+# Install a thin requests stub only when the slot is still free.
+if "requests" not in sys.modules:
+    _requests_stub = _types.ModuleType("requests")
+    _requests_stub.RequestException = _RequestException  # type: ignore[attr-defined]
+    _requests_stub.get = Mock()  # type: ignore[attr-defined]
+    _requests_stub.request = Mock()  # keep run_worker happy  # type: ignore[attr-defined]
+    sys.modules["requests"] = _requests_stub
+else:
+    # Ensure the already-loaded stub/module exposes our known exception class
+    # so that `except requests.RequestException` in the backend matches what
+    # our tests raise via side_effect.
+    sys.modules["requests"].RequestException = _RequestException  # type: ignore[attr-defined]
 
 import run_worker  # noqa: E402  (must come after sys.modules patching)
 from lead_crawler.services.common_crawl_discovery_service import (  # noqa: E402
