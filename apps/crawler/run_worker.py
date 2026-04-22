@@ -24,13 +24,22 @@ from lead_crawler.services.sme_tranco_filter import SmeTrancoFilter
 
 LARAVEL_API_BASE = os.getenv("LARAVEL_API_BASE", "http://nginx/api/v1/internal")
 TLD_COUNTRY_HINTS = {
+    # DACH
     "de": "DE",
-    "fr": "FR",
+    "at": "AT",
+    "ch": "CH",
+    # Benelux / Nordics
     "nl": "NL",
+    "se": "SE",
+    # Middle East
+    "ae": "AE",
+    # North America
+    "us": "US",
+    # Other EU
+    "fr": "FR",
     "it": "IT",
     "es": "ES",
     "pl": "PL",
-    "se": "SE",
 }
 NICHE_KEYWORDS = {
     "fashion": ["apparel", "clothing", "shoes", "sneakers", "menswear", "womenswear", "accessories", "footwear"],
