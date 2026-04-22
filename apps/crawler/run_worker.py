@@ -18,7 +18,9 @@ from lead_crawler.services.common_crawl_athena_backend import CommonCrawlAthenaB
 from lead_crawler.services.common_crawl_discovery_service import CommonCrawlDiscoveryService
 from lead_crawler.services.common_crawl_domain_filter import CommonCrawlDomainFilter
 from lead_crawler.services.common_crawl_duckdb_backend import CommonCrawlDuckDbBackend
+from lead_crawler.services.common_crawl_index_api_backend import CommonCrawlIndexApiBackend, CommonCrawlIndexApiConfig
 from lead_crawler.services.common_crawl_url_pattern_builder import CommonCrawlUrlPatternBuilder
+from lead_crawler.services.sme_tranco_filter import SmeTrancoFilter
 
 LARAVEL_API_BASE = os.getenv("LARAVEL_API_BASE", "http://nginx/api/v1/internal")
 TLD_COUNTRY_HINTS = {
@@ -566,6 +568,17 @@ def _build_common_crawl_backend(payload):
         )
         return CommonCrawlAthenaBackend(config=config), backend_name
 
+    if backend_name == "cc_index_api":
+        raw_page_size = int(payload.get("cc_page_size", 100))
+        config = CommonCrawlIndexApiConfig(
+            crawls=payload.get("cc_crawls") or None,
+            tld_targets=payload.get("cc_tld_targets") or None,
+            requests_per_crawl=int(payload.get("cc_requests_per_crawl", 3)),
+            page_size=min(raw_page_size, 100),
+            request_delay_seconds=float(payload.get("cc_delay", 1.0)),
+        )
+        return CommonCrawlIndexApiBackend(config=config), backend_name
+
     raise ValueError(f"Unsupported Common Crawl backend: {backend_name}")
 
 
@@ -580,7 +593,19 @@ def process_domain_discovery_common_crawl(job):
     limit = int(payload.get("limit", 500))
 
     backend, backend_name = _build_common_crawl_backend(payload)
-    domain_filter = CommonCrawlDomainFilter(set(payload.get("domain_denylist", [])))
+
+    tranco_filter = None
+    if payload.get("use_tranco_filter"):
+        tranco_filter = SmeTrancoFilter(
+            int(payload.get("tranco_top_n", 50000)),
+            payload.get("tranco_cache_path"),
+        )
+
+    domain_filter = CommonCrawlDomainFilter(
+        set(payload.get("domain_denylist", [])),
+        float(payload.get("min_sme_score", 0.0)),
+        tranco_filter,
+    )
     service = CommonCrawlDiscoveryService(backend=backend, domain_filter=domain_filter)
     discovered = service.discover(
         patterns=patterns,
