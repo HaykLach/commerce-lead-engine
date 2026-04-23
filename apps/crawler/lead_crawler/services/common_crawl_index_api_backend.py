@@ -33,15 +33,18 @@ COUNTRY_TO_TLDS: dict[str, list[str]] = {
     "ch": ["ch"],
     "nl": ["nl"],
     "se": ["se"],
-    "us": ["com", "us"],
+    "us": ["us"],        # .com omitted — too large for the CDX Index API
     "ae": ["ae"],
 }
 
 # CDX API base URL template
 _CDX_BASE = "https://index.commoncrawl.org/{crawl_id}-index"
 
-# HTTP statuses we keep
+# HTTP statuses we consider valid (safety-net; CDX filter handles the primary check)
 _VALID_STATUSES: frozenset[str] = frozenset({"200", "301", "302"})
+
+# TLDs too large for the CDX Index API (would always time out even with a single wildcard)
+_OVERSIZED_TLDS: frozenset[str] = frozenset({"com", "net", "org"})
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +71,10 @@ class CommonCrawlIndexApiConfig:
     request_delay_seconds: float = 1.0
     """Delay between individual HTTP requests to be a polite crawler."""
 
-    timeout_seconds: float = 20.0
-    """Requests timeout in seconds."""
+    timeout_seconds: float = 45.0
+    """Per-request HTTP timeout in seconds.
+    CDX responses for single-wildcard TLD queries can take 10-30 s under normal
+    load; 45 s gives enough headroom without waiting indefinitely."""
 
     user_agent: str = "Mozilla/5.0 (compatible; LeadCrawlerBot/1.0)"
     """HTTP User-Agent header sent with every CDX request."""
@@ -116,27 +121,45 @@ class CommonCrawlIndexApiBackend:
         return tlds if tlds else ["com"]
 
     def _build_request_url(self, crawl_id: str, tld: str, pattern: str, page: int) -> str:
-        """Construct the CDX API request URL for one page."""
-        # Strip surrounding slashes so we build a clean path segment
+        """Construct the CDX API request URL for one page.
+
+        **Why single wildcard + filter instead of** ``*.{tld}/{path}/*``:
+
+        The CDX server stores URLs in SURT order (``de,example)/path``).  A
+        single left-side wildcard ``*.{tld}`` maps to a clean SURT prefix scan
+        (``{tld},``) that the server handles efficiently.  Adding a path suffix
+        (``*.{tld}/{path}/*``) creates a *double-wildcard* form that forces the
+        server to scan every record in the TLD section and test each one against
+        the path — an un-indexed sequential scan that routinely produces 504s.
+
+        Moving the path match into a CDX ``filter=url:`` regex keeps the prefix
+        scan intact while still constraining results to URLs containing the
+        target path segment.  Status and MIME are also pushed to server-side
+        filters so we transfer fewer bytes.
+        """
         path = pattern.strip("/")
-        url_pattern = f"*.{tld}/{path}/*"
         base = _CDX_BASE.format(crawl_id=crawl_id)
-        return (
-            f"{base}"
-            f"?url={url_pattern}"
-            f"&output=json"
-            f"&limit={self.config.page_size}"
-            f"&fl=url,status,mime,languages"
-            f"&page={page}"
-        )
+
+        parts = [
+            f"url=*.{tld}",                   # single wildcard — SURT prefix scan
+            "output=json",
+            f"limit={self.config.page_size}",
+            "fl=url,status,mime,languages",
+            f"filter=url:.*/{path}",           # path match via server-side regex
+            "filter=status:200",               # live pages only
+            "filter=mime:text/html",           # HTML only (substring match)
+            f"page={page}",
+        ]
+        return f"{base}?" + "&".join(parts)
 
     def _fetch_page(self, url: str) -> list[dict] | None:
         """Fetch one CDX page.
 
         Returns:
             Parsed record list (may be empty).
-            *None* signals an unrecoverable transport error — the caller should
-            stop paginating for this (crawl, tld, pattern) combination.
+            *None* signals that pagination for this (crawl, tld, pattern)
+            combination should be aborted — either a transport failure or a
+            gateway timeout from the CDX server.
         """
         try:
             resp = requests.get(
@@ -148,9 +171,21 @@ class CommonCrawlIndexApiBackend:
             logger.warning("CDX request failed (%s): %s", url, exc)
             return None
 
+        # 404 → this crawl/index doesn't exist; treat as empty, keep going
         if resp.status_code == 404:
             logger.info("CDX index not found (404) for %s — skipping", url)
             return []
+
+        # Gateway timeouts / upstream errors → abort this (crawl, tld, pattern)
+        # combination but continue with the next one rather than crashing.
+        if resp.status_code in (502, 503, 504):
+            logger.warning(
+                "CDX gateway error %d for %s — skipping this combination "
+                "(query may be too broad or the CDX server is overloaded)",
+                resp.status_code,
+                url,
+            )
+            return None
 
         try:
             resp.raise_for_status()
@@ -208,6 +243,18 @@ class CommonCrawlIndexApiBackend:
 
         for crawl in crawls:
             for tld in tlds:
+                # Warn and skip TLDs that are too large for the CDX Index API.
+                # .com/.net/.org contain hundreds of millions of URLs; even a
+                # single-wildcard scan (*.com) will time out.  Use the Athena
+                # or DuckDB backend for those TLDs.
+                if tld in _OVERSIZED_TLDS:
+                    logger.warning(
+                        "Skipping TLD '.%s' — too large for the CDX Index API "
+                        "(use the Athena or DuckDB backend instead).",
+                        tld,
+                    )
+                    continue
+
                 for pattern in patterns:
                     for page in range(self.config.requests_per_crawl):
                         if len(results) >= limit:

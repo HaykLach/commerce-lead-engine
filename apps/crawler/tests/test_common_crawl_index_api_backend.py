@@ -90,7 +90,7 @@ def test_config_defaults():
     assert cfg.requests_per_crawl == 3
     assert cfg.page_size == 100
     assert cfg.request_delay_seconds == 1.0
-    assert cfg.timeout_seconds == 20.0
+    assert cfg.timeout_seconds == 45.0
     assert cfg.user_agent  # non-empty string
 
 
@@ -142,10 +142,12 @@ def test_tld_derivation_fallback_to_com():
     assert tlds == ["com"]
 
 
-def test_tld_derivation_us_includes_com():
+def test_tld_derivation_us_returns_us_only():
+    """US maps to .us only — .com is skipped (too large for the CDX Index API)."""
     b = _backend()
     tlds = b._get_tlds(["us"])
-    assert "com" in tlds
+    assert "us" in tlds
+    assert "com" not in tlds
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +469,129 @@ def test_process_domain_discovery_happy_path(monkeypatch):
 # ---------------------------------------------------------------------------
 # 14. Pagination stops early when page returns < page_size/2 rows
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 14b. URL pattern uses single wildcard + CDX filter (no double-wildcard)
+# ---------------------------------------------------------------------------
+
+
+def test_request_url_single_wildcard_no_path_in_url():
+    """The URL pattern must be *.{tld} only; path goes in filter=url:."""
+    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], delay=0.0)
+    url = b._build_request_url("CC-MAIN-2025-13", "de", "/products/", 0)
+
+    # Must contain single wildcard TLD pattern
+    assert "url=*.de" in url
+    # Must NOT embed the path inside the url= parameter (double-wildcard)
+    assert "url=*.de/products" not in url
+    # Path must appear as a CDX filter instead
+    assert "filter=url:" in url
+    assert "products" in url
+    # Status and MIME filters pushed server-side
+    assert "filter=status:200" in url
+    assert "filter=mime:text/html" in url
+
+
+def test_request_url_page_parameter():
+    b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], delay=0.0)
+    url0 = b._build_request_url("CC-MAIN-2025-13", "ae", "/checkout", 0)
+    url1 = b._build_request_url("CC-MAIN-2025-13", "ae", "/checkout", 1)
+    assert "page=0" in url0
+    assert "page=1" in url1
+
+
+# ---------------------------------------------------------------------------
+# 14c. 504 / 503 / 502 handling — skips combo, continues next
+# ---------------------------------------------------------------------------
+
+
+def test_http_504_skips_combination_and_continues():
+    """504 gateway timeout must be caught; remaining combos still run."""
+    # Two TLDs: first returns 504, second returns a valid record.
+    b = _backend(
+        tld_targets=["ae", "de"],
+        crawls=["CC-MAIN-2025-13"],
+        requests_per_crawl=1,
+        delay=0.0,
+    )
+
+    responses = {
+        "ae": _make_response(504, ""),
+        "de": _make_response(200, _valid_record(url="https://klein-shop.de/products/x")),
+    }
+
+    def fake_get(url, **kwargs):
+        tld = "ae" if ".ae" in url else "de"
+        return responses[tld]
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.side_effect = fake_get
+
+        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=[])
+
+    # .de result must come through despite .ae 504
+    domains = [r.normalized_domain for r in results]
+    assert "klein-shop.de" in domains
+
+
+def test_http_503_handled_same_as_504():
+    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.return_value = _make_response(503, "")
+
+        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=["de"])
+
+    assert results == []
+
+
+# ---------------------------------------------------------------------------
+# 14d. Oversized TLD skip (.com / .net / .org)
+# ---------------------------------------------------------------------------
+
+
+def test_oversized_tld_skipped_no_request():
+    """Querying .com via CDX Index API is skipped with a warning; no HTTP call made."""
+    b = _backend(tld_targets=["com"], crawls=["CC-MAIN-2025-13"], delay=0.0)
+
+    call_count = 0
+
+    def fake_get(url, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _make_response(200, _valid_record())
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.side_effect = fake_get
+
+        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=[])
+
+    assert call_count == 0, "Expected zero HTTP calls for oversized TLD"
+    assert results == []
+
+
+def test_us_country_does_not_trigger_com_query():
+    """.com must not be queried when countries=['us'] — only .us is used now."""
+    b = _backend(crawls=["CC-MAIN-2025-13"], delay=0.0)
+
+    urls_called: list[str] = []
+
+    def fake_get(url, **kwargs):
+        urls_called.append(url)
+        return _make_response(200, "")
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.side_effect = fake_get
+
+        b.fetch_candidates(patterns=["/products/"], limit=50, countries=["us"])
+
+    for called_url in urls_called:
+        assert "*.com" not in called_url, f"Unexpected .com query: {called_url}"
 
 
 def test_early_stop_on_sparse_page():
