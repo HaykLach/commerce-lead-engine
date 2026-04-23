@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import requests
 
@@ -261,12 +261,28 @@ class CommonCrawlIndexApiBackend:
                             return results
 
                         request_url = self._build_request_url(crawl, tld, pattern, page)
-                        logger.debug("CDX fetch: %s", request_url)
+                        logger.info(
+                            "CC Index request crawl=%s tld=%s pattern=%s page=%s url=%s",
+                            crawl,
+                            tld,
+                            pattern,
+                            page,
+                            request_url,
+                        )
                         records = self._fetch_page(request_url)
 
                         if records is None:
                             # Transport error — abort pagination for this combo
                             break
+
+                        logger.info(
+                            "CC Index response crawl=%s tld=%s pattern=%s page=%s records=%s",
+                            crawl,
+                            tld,
+                            pattern,
+                            page,
+                            len(records),
+                        )
 
                         for record in records:
                             if not self._is_valid_record(record):
