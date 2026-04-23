@@ -2,6 +2,7 @@ import time
 import json
 import os
 import re
+import logging
 from types import SimpleNamespace
 
 import requests
@@ -23,6 +24,7 @@ from lead_crawler.services.common_crawl_url_pattern_builder import CommonCrawlUr
 from lead_crawler.services.sme_tranco_filter import SmeTrancoFilter
 
 LARAVEL_API_BASE = os.getenv("LARAVEL_API_BASE", "http://nginx/api/v1/internal")
+WORKER_LOG_LEVEL = os.getenv("WORKER_LOG_LEVEL", "INFO").upper()
 TLD_COUNTRY_HINTS = {
     # DACH
     "de": "DE",
@@ -602,6 +604,26 @@ def process_domain_discovery_common_crawl(job):
     limit = int(payload.get("limit", 500))
 
     backend, backend_name = _build_common_crawl_backend(payload)
+    print(
+        "[Worker] CommonCrawl config:",
+        json.dumps(
+            {
+                "backend": backend_name,
+                "patterns": patterns,
+                "countries": countries,
+                "niches": niches,
+                "limit": limit,
+                "cc_crawls": payload.get("cc_crawls"),
+                "cc_tld_targets": payload.get("cc_tld_targets"),
+                "cc_requests_per_crawl": payload.get("cc_requests_per_crawl"),
+                "cc_page_size": payload.get("cc_page_size"),
+                "cc_delay": payload.get("cc_delay"),
+                "min_sme_score": payload.get("min_sme_score"),
+                "use_tranco_filter": payload.get("use_tranco_filter"),
+            },
+            default=str,
+        ),
+    )
 
     tranco_filter = None
     if payload.get("use_tranco_filter"):
@@ -622,6 +644,10 @@ def process_domain_discovery_common_crawl(job):
         countries=countries,
         niches=niches,
     )
+    print(f"[Worker] CommonCrawl discovered candidate domains before ingest: {len(discovered)}")
+    if discovered:
+        sample = [candidate.domain for candidate in discovered[:10]]
+        print(f"[Worker] CommonCrawl sample domains: {sample}")
 
     ingested = []
     for candidate in discovered:
@@ -699,4 +725,8 @@ def run():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=getattr(logging, WORKER_LOG_LEVEL, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     run()
