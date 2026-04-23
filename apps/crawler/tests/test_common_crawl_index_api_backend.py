@@ -472,33 +472,96 @@ def test_process_domain_discovery_happy_path(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 14b. URL pattern uses single wildcard + CDX filter (no double-wildcard)
+# 14b. URL is a filter-free page-seek (no server-side filter= at all)
 # ---------------------------------------------------------------------------
 
 
-def test_request_url_single_wildcard_no_path_in_url():
-    """The URL pattern must be *.{tld} only; path goes in filter=url:."""
-    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], delay=0.0)
-    url = b._build_request_url("CC-MAIN-2025-13", "de", "/products/", 0)
+def test_request_url_is_filter_free():
+    """The CDX request must use a plain page-seek with no filter= parameters.
 
-    # Must contain single wildcard TLD pattern
-    assert "url=*.de" in url
-    # Must NOT embed the path inside the url= parameter (double-wildcard)
-    assert "url=*.de/products" not in url
-    # Path must appear as a CDX filter instead
-    assert "filter=url:" in url
-    assert "products" in url
-    # Status and MIME filters pushed server-side
-    assert "filter=status:200" in url
-    assert "filter=mime:text/html" in url
+    Any server-side filter forces a sequential scan over the TLD range, which
+    causes 504 timeouts.  All filtering is done locally after the page is fetched.
+    """
+    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], delay=0.0)
+    url = b._build_request_url("CC-MAIN-2025-13", "de", 0)
+
+    assert "url=*.de" in url          # single TLD wildcard
+    assert "output=json" in url
+    assert "page=0" in url
+    assert "filter=" not in url       # zero server-side filters
 
 
 def test_request_url_page_parameter():
     b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], delay=0.0)
-    url0 = b._build_request_url("CC-MAIN-2025-13", "ae", "/checkout", 0)
-    url1 = b._build_request_url("CC-MAIN-2025-13", "ae", "/checkout", 1)
+    url0 = b._build_request_url("CC-MAIN-2025-13", "ae", 0)
+    url1 = b._build_request_url("CC-MAIN-2025-13", "ae", 1)
     assert "page=0" in url0
     assert "page=1" in url1
+
+
+def test_local_path_matching_accepts_matching_url():
+    """_match_pattern returns the matched segment when the URL contains it."""
+    b = _backend()
+    assert b._match_pattern("https://shop.de/products/shirt", ["products", "checkout"]) == "products"
+    assert b._match_pattern("https://shop.de/checkout", ["products", "checkout"]) == "checkout"
+
+
+def test_local_path_matching_rejects_non_matching_url():
+    b = _backend()
+    assert b._match_pattern("https://shop.de/about-us", ["products", "checkout"]) is None
+
+
+def test_local_path_matching_filters_records_without_pattern():
+    """Records whose URL does not contain any target path segment are skipped."""
+    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], delay=0.0)
+
+    lines = "\n".join([
+        _valid_record(url="https://a.de/about-us"),        # no match
+        _valid_record(url="https://b.de/products/shirt"),  # match
+        _valid_record(url="https://c.de/contact"),         # no match
+    ])
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.return_value = _make_response(200, lines)
+
+        results = b.fetch_candidates(patterns=["/products/"], limit=100, countries=["de"])
+
+    domains = [r.normalized_domain for r in results]
+    assert "b.de" in domains
+    assert "a.de" not in domains
+    assert "c.de" not in domains
+
+
+def test_single_cdx_request_per_page_checks_all_patterns():
+    """One HTTP request per page; all patterns checked locally — no per-pattern requests."""
+    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
+
+    lines = "\n".join([
+        _valid_record(url="https://x.de/shop/hats"),
+        _valid_record(url="https://y.de/checkout"),
+    ])
+
+    call_count = 0
+
+    def fake_get(url, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _make_response(200, lines)
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.side_effect = fake_get
+
+        results = b.fetch_candidates(
+            patterns=["/shop/", "/checkout"], limit=100, countries=["de"]
+        )
+
+    # Only 1 HTTP request (not 1 per pattern)
+    assert call_count == 1
+    domains = [r.normalized_domain for r in results]
+    assert "x.de" in domains
+    assert "y.de" in domains
 
 
 # ---------------------------------------------------------------------------

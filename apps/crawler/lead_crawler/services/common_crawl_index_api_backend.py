@@ -33,17 +33,17 @@ COUNTRY_TO_TLDS: dict[str, list[str]] = {
     "ch": ["ch"],
     "nl": ["nl"],
     "se": ["se"],
-    "us": ["us"],        # .com omitted — too large for the CDX Index API
+    "us": ["us"],   # .com omitted — too large for the CDX Index API
     "ae": ["ae"],
 }
 
 # CDX API base URL template
 _CDX_BASE = "https://index.commoncrawl.org/{crawl_id}-index"
 
-# HTTP statuses we consider valid (safety-net; CDX filter handles the primary check)
+# HTTP statuses we consider valid (checked locally after fetch)
 _VALID_STATUSES: frozenset[str] = frozenset({"200", "301", "302"})
 
-# TLDs too large for the CDX Index API (would always time out even with a single wildcard)
+# TLDs too large for the CDX Index API — even a filter-free page-seek times out
 _OVERSIZED_TLDS: frozenset[str] = frozenset({"com", "net", "org"})
 
 
@@ -63,7 +63,9 @@ class CommonCrawlIndexApiConfig:
     :meth:`CommonCrawlIndexApiBackend.fetch_candidates`."""
 
     requests_per_crawl: int = 3
-    """Maximum CDX pages fetched per (crawl × tld × pattern) combination."""
+    """Maximum CDX pages fetched per (crawl × tld) combination.
+    All supplied patterns are checked locally per page, so there is no
+    per-pattern multiplier on the number of HTTP requests."""
 
     page_size: int = 100
     """Rows per CDX page (hard cap: 100)."""
@@ -72,9 +74,7 @@ class CommonCrawlIndexApiConfig:
     """Delay between individual HTTP requests to be a polite crawler."""
 
     timeout_seconds: float = 45.0
-    """Per-request HTTP timeout in seconds.
-    CDX responses for single-wildcard TLD queries can take 10-30 s under normal
-    load; 45 s gives enough headroom without waiting indefinitely."""
+    """Per-request HTTP timeout in seconds."""
 
     user_agent: str = "Mozilla/5.0 (compatible; LeadCrawlerBot/1.0)"
     """HTTP User-Agent header sent with every CDX request."""
@@ -91,6 +91,23 @@ class CommonCrawlIndexApiBackend:
 
     Implements the :class:`~lead_crawler.services.common_crawl_discovery_service.CommonCrawlBackend`
     protocol — no inheritance required.
+
+    **Query strategy — why no server-side filters**
+
+    The CDX index is sorted in SURT order (``de,example)/path``).  The only
+    query the server can answer in O(1) is a plain page-seek:
+
+        ``url=*.{tld}&limit=N&page=P``
+
+    Any ``filter=`` parameter — including ``filter=url:``, ``filter=status:``,
+    and ``filter=mime:`` — forces the server to walk records sequentially until
+    it accumulates ``limit`` *matching* records.  For large TLDs this scan
+    spans millions of entries and reliably returns 504.
+
+    We therefore send zero filters and perform all matching (status, MIME,
+    path patterns) locally in Python after receiving each page.  The extra
+    bandwidth from non-HTML or non-matching records is negligible compared to
+    the reliability gain.
     """
 
     def __init__(self, config: CommonCrawlIndexApiConfig) -> None:
@@ -117,37 +134,22 @@ class CommonCrawlIndexApiBackend:
                     seen.add(tld)
                     tlds.append(tld)
 
-        # Fall back to .com when no mapping found
         return tlds if tlds else ["com"]
 
-    def _build_request_url(self, crawl_id: str, tld: str, pattern: str, page: int) -> str:
-        """Construct the CDX API request URL for one page.
+    def _build_request_url(self, crawl_id: str, tld: str, page: int) -> str:
+        """Construct a filter-free CDX page-seek URL.
 
-        **Why single wildcard + filter instead of** ``*.{tld}/{path}/*``:
-
-        The CDX server stores URLs in SURT order (``de,example)/path``).  A
-        single left-side wildcard ``*.{tld}`` maps to a clean SURT prefix scan
-        (``{tld},``) that the server handles efficiently.  Adding a path suffix
-        (``*.{tld}/{path}/*``) creates a *double-wildcard* form that forces the
-        server to scan every record in the TLD section and test each one against
-        the path — an un-indexed sequential scan that routinely produces 504s.
-
-        Moving the path match into a CDX ``filter=url:`` regex keeps the prefix
-        scan intact while still constraining results to URLs containing the
-        target path segment.  Status and MIME are also pushed to server-side
-        filters so we transfer fewer bytes.
+        No ``filter=`` parameters are used.  The server performs a direct
+        O(1) seek to ``page * page_size`` within the ``{tld},`` SURT range
+        and streams the next ``page_size`` records.  All filtering is done
+        locally by the caller.
         """
-        path = pattern.strip("/")
         base = _CDX_BASE.format(crawl_id=crawl_id)
-
         parts = [
-            f"url=*.{tld}",                   # single wildcard — SURT prefix scan
+            f"url=*.{tld}",
             "output=json",
             f"limit={self.config.page_size}",
             "fl=url,status,mime,languages",
-            f"filter=url:.*/{path}",           # path match via server-side regex
-            "filter=status:200",               # live pages only
-            "filter=mime:text/html",           # HTML only (substring match)
             f"page={page}",
         ]
         return f"{base}?" + "&".join(parts)
@@ -157,9 +159,8 @@ class CommonCrawlIndexApiBackend:
 
         Returns:
             Parsed record list (may be empty).
-            *None* signals that pagination for this (crawl, tld, pattern)
-            combination should be aborted — either a transport failure or a
-            gateway timeout from the CDX server.
+            *None* signals that pagination for this (crawl, tld) combination
+            should be aborted — transport failure or CDX gateway error.
         """
         try:
             resp = requests.get(
@@ -171,17 +172,15 @@ class CommonCrawlIndexApiBackend:
             logger.warning("CDX request failed (%s): %s", url, exc)
             return None
 
-        # 404 → this crawl/index doesn't exist; treat as empty, keep going
+        # 404 → this crawl/index doesn't exist; skip cleanly
         if resp.status_code == 404:
             logger.info("CDX index not found (404) for %s — skipping", url)
             return []
 
-        # Gateway timeouts / upstream errors → abort this (crawl, tld, pattern)
-        # combination but continue with the next one rather than crashing.
+        # Gateway errors → skip this (crawl, tld) combination
         if resp.status_code in (502, 503, 504):
             logger.warning(
-                "CDX gateway error %d for %s — skipping this combination "
-                "(query may be too broad or the CDX server is overloaded)",
+                "CDX gateway error %d for %s — skipping this combination",
                 resp.status_code,
                 url,
             )
@@ -207,17 +206,24 @@ class CommonCrawlIndexApiBackend:
 
     @staticmethod
     def _is_valid_record(record: dict) -> bool:
-        """Return True when status and MIME type are acceptable."""
+        """Local status + MIME check (no server-side filter needed)."""
         status = str(record.get("status", "")).strip()
         mime = str(record.get("mime", "")).lower()
 
         if status not in _VALID_STATUSES:
             return False
-
         if "text/html" not in mime and "application/xhtml" not in mime:
             return False
-
         return True
+
+    @staticmethod
+    def _match_pattern(url: str, path_segments: list[str]) -> str | None:
+        """Return the first pattern whose path segment appears in *url*, or None."""
+        url_lower = url.lower()
+        for seg in path_segments:
+            if f"/{seg}" in url_lower:
+                return seg
+        return None
 
     # ------------------------------------------------------------------
     # Protocol method
@@ -228,12 +234,13 @@ class CommonCrawlIndexApiBackend:
         patterns: list[str],
         limit: int,
         countries: list[str] | None = None,
-        niches: list[str] | None = None,  # noqa: ARG002 — unused, kept for protocol compat
+        niches: list[str] | None = None,  # noqa: ARG002 — kept for protocol compat
     ) -> list[CommonCrawlCandidateRow]:
         """Query the CDX API and return up to *limit* deduplicated candidates.
 
-        Outer iteration order: crawls → tlds → patterns → pages.
-        Stops as soon as *limit* unique domains have been collected.
+        Iteration order: crawls → tlds → pages.
+        All pattern matching is done locally per record — no per-pattern
+        outer loop and no server-side ``filter=`` parameters.
         """
         seen_domains: set[str] = set()
         results: list[CommonCrawlCandidateRow] = []
@@ -241,12 +248,11 @@ class CommonCrawlIndexApiBackend:
         crawls = self._get_crawls()
         tlds = self._get_tlds(countries)
 
+        # Pre-compute stripped path segments for local matching
+        path_segments = [p.strip("/") for p in (patterns or [])]
+
         for crawl in crawls:
             for tld in tlds:
-                # Warn and skip TLDs that are too large for the CDX Index API.
-                # .com/.net/.org contain hundreds of millions of URLs; even a
-                # single-wildcard scan (*.com) will time out.  Use the Athena
-                # or DuckDB backend for those TLDs.
                 if tld in _OVERSIZED_TLDS:
                     logger.warning(
                         "Skipping TLD '.%s' — too large for the CDX Index API "
@@ -255,70 +261,63 @@ class CommonCrawlIndexApiBackend:
                     )
                     continue
 
-                for pattern in patterns:
-                    for page in range(self.config.requests_per_crawl):
+                for page in range(self.config.requests_per_crawl):
+                    if len(results) >= limit:
+                        return results
+
+                    request_url = self._build_request_url(crawl, tld, page)
+                    logger.debug("CDX fetch: crawl=%s tld=%s page=%d", crawl, tld, page)
+                    records = self._fetch_page(request_url)
+
+                    if records is None:
+                        break  # gateway error — skip to next tld
+
+                    logger.debug(
+                        "CDX response: crawl=%s tld=%s page=%d records=%d",
+                        crawl, tld, page, len(records),
+                    )
+
+                    for record in records:
+                        if not self._is_valid_record(record):
+                            continue
+
+                        candidate_url = record.get("url") or ""
+
+                        # Local path filter — must contain at least one target segment
+                        matched_seg = self._match_pattern(candidate_url, path_segments)
+                        if matched_seg is None:
+                            continue
+
+                        normalized = self._normalizer.normalize(candidate_url)
+                        if not normalized or normalized in seen_domains:
+                            continue
+
+                        seen_domains.add(normalized)
+                        results.append(
+                            CommonCrawlCandidateRow(
+                                candidate_url=candidate_url,
+                                normalized_domain=normalized,
+                                matched_pattern=f"/{matched_seg}",
+                                source_metadata={
+                                    "backend": "cc_index_api",
+                                    "crawl": crawl,
+                                    "tld_target": tld,
+                                    "status": record.get("status"),
+                                    "mime": record.get("mime"),
+                                    "languages": record.get("languages"),
+                                },
+                            )
+                        )
+
                         if len(results) >= limit:
                             return results
 
-                        request_url = self._build_request_url(crawl, tld, pattern, page)
-                        logger.info(
-                            "CC Index request crawl=%s tld=%s pattern=%s page=%s url=%s",
-                            crawl,
-                            tld,
-                            pattern,
-                            page,
-                            request_url,
-                        )
-                        records = self._fetch_page(request_url)
+                    # Polite delay between requests
+                    if self.config.request_delay_seconds > 0:
+                        time.sleep(self.config.request_delay_seconds)
 
-                        if records is None:
-                            # Transport error — abort pagination for this combo
-                            break
-
-                        logger.info(
-                            "CC Index response crawl=%s tld=%s pattern=%s page=%s records=%s",
-                            crawl,
-                            tld,
-                            pattern,
-                            page,
-                            len(records),
-                        )
-
-                        for record in records:
-                            if not self._is_valid_record(record):
-                                continue
-
-                            candidate_url = record.get("url") or ""
-                            normalized = self._normalizer.normalize(candidate_url)
-                            if not normalized or normalized in seen_domains:
-                                continue
-
-                            seen_domains.add(normalized)
-                            results.append(
-                                CommonCrawlCandidateRow(
-                                    candidate_url=candidate_url,
-                                    normalized_domain=normalized,
-                                    matched_pattern=pattern,
-                                    source_metadata={
-                                        "backend": "cc_index_api",
-                                        "crawl": crawl,
-                                        "tld_target": tld,
-                                        "status": record.get("status"),
-                                        "mime": record.get("mime"),
-                                        "languages": record.get("languages"),
-                                    },
-                                )
-                            )
-
-                            if len(results) >= limit:
-                                return results
-
-                        # Polite delay between requests
-                        if self.config.request_delay_seconds > 0:
-                            time.sleep(self.config.request_delay_seconds)
-
-                        # Early-stop: page returned fewer than half the expected rows
-                        if len(records) < self.config.page_size / 2:
-                            break
+                    # Early-stop: last page was sparse — no more data in this range
+                    if len(records) < self.config.page_size / 2:
+                        break
 
         return results
