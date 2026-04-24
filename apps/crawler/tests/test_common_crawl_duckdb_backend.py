@@ -56,20 +56,25 @@ def _seed_table(conn, rows: list[dict]) -> None:
 
 class TestCcParquetGlob:
     def test_single_crawl(self):
-        urls = CommonCrawlDuckDbBackend.cc_parquet_glob(["CC-MAIN-2025-13"])
+        urls = CommonCrawlDuckDbBackend.cc_s3_globs(["CC-MAIN-2025-13"])
         assert len(urls) == 1
         assert "CC-MAIN-2025-13" in urls[0]
-        assert urls[0].startswith("https://data.commoncrawl.org")
+        assert urls[0].startswith("s3://commoncrawl")
         assert urls[0].endswith(".parquet")
 
     def test_multiple_crawls(self):
-        urls = CommonCrawlDuckDbBackend.cc_parquet_glob(["CC-MAIN-2025-13", "CC-MAIN-2024-51"])
+        urls = CommonCrawlDuckDbBackend.cc_s3_globs(["CC-MAIN-2025-13", "CC-MAIN-2024-51"])
         assert len(urls) == 2
 
     def test_defaults_to_known_crawls(self):
         from lead_crawler.services.common_crawl_index_api_backend import KNOWN_CRAWLS
-        urls = CommonCrawlDuckDbBackend.cc_parquet_glob(None)
+        urls = CommonCrawlDuckDbBackend.cc_s3_globs(None)
         assert len(urls) == len(KNOWN_CRAWLS)
+
+    def test_backward_compat_alias(self):
+        # cc_parquet_glob is kept as a backward-compat alias
+        urls = CommonCrawlDuckDbBackend.cc_parquet_glob(["CC-MAIN-2025-13"])
+        assert urls == CommonCrawlDuckDbBackend.cc_s3_globs(["CC-MAIN-2025-13"])
 
 
 # ---------------------------------------------------------------------------
@@ -319,17 +324,26 @@ class TestConfig:
 # is_https detection tests
 # ---------------------------------------------------------------------------
 
-class TestIsHttps:
+class TestIsRemote:
+    def test_s3_string(self):
+        assert CommonCrawlDuckDbBackend._is_remote("s3://commoncrawl/cc-index/part-0.parquet")
+
     def test_https_string(self):
-        assert CommonCrawlDuckDbBackend._is_https("https://example.com/file.parquet")
+        assert CommonCrawlDuckDbBackend._is_remote("https://example.com/file.parquet")
 
-    def test_local_path_not_https(self):
-        assert not CommonCrawlDuckDbBackend._is_https("/data/cc/part-0.parquet")
+    def test_local_path_not_remote(self):
+        assert not CommonCrawlDuckDbBackend._is_remote("/data/cc/part-0.parquet")
 
-    def test_https_list(self):
-        assert CommonCrawlDuckDbBackend._is_https([
-            "https://data.commoncrawl.org/cc-index/table/cc-main/warc/crawl=CC-MAIN-2025-13/subset=warc/part-*.parquet"
+    def test_s3_list(self):
+        assert CommonCrawlDuckDbBackend._is_remote([
+            "s3://commoncrawl/cc-index/table/cc-main/warc/crawl=CC-MAIN-2025-13/subset=warc/*.parquet"
         ])
 
     def test_local_list(self):
-        assert not CommonCrawlDuckDbBackend._is_https(["/local/path/part-0.parquet"])
+        assert not CommonCrawlDuckDbBackend._is_remote(["/local/path/part-0.parquet"])
+
+    def test_default_dataset_is_s3(self):
+        backend = CommonCrawlDuckDbBackend()
+        dataset = backend._resolve_dataset()
+        assert CommonCrawlDuckDbBackend._is_remote(dataset)
+        assert not CommonCrawlDuckDbBackend._is_https(dataset)  # S3, not HTTPS
