@@ -18,7 +18,7 @@ from lead_crawler.services.expansion_discovery_service import ExpansionDiscovery
 from lead_crawler.services.common_crawl_athena_backend import CommonCrawlAthenaBackend, CommonCrawlAthenaConfig
 from lead_crawler.services.common_crawl_discovery_service import CommonCrawlDiscoveryService
 from lead_crawler.services.common_crawl_domain_filter import CommonCrawlDomainFilter
-from lead_crawler.services.common_crawl_duckdb_backend import CommonCrawlDuckDbBackend
+from lead_crawler.services.common_crawl_duckdb_backend import CommonCrawlDuckDbBackend, CommonCrawlDuckDbConfig
 from lead_crawler.services.common_crawl_index_api_backend import CommonCrawlIndexApiBackend, CommonCrawlIndexApiConfig
 from lead_crawler.services.common_crawl_url_pattern_builder import CommonCrawlUrlPatternBuilder
 from lead_crawler.services.sme_tranco_filter import SmeTrancoFilter
@@ -564,10 +564,12 @@ def _build_common_crawl_backend(payload):
     backend_name = str(payload.get("backend", "duckdb")).strip().lower()
 
     if backend_name == "duckdb":
-        return CommonCrawlDuckDbBackend(
+        config = CommonCrawlDuckDbConfig(
+            crawls=payload.get("cc_crawls") or None,
+            dataset_path=payload.get("duckdb_dataset_path") or None,
             database=str(payload.get("duckdb_database", ":memory:")),
-            dataset_path=payload.get("duckdb_dataset_path"),
-        ), backend_name
+        )
+        return CommonCrawlDuckDbBackend(config=config), backend_name
 
     if backend_name == "athena":
         config = CommonCrawlAthenaConfig(

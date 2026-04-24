@@ -16,6 +16,6 @@ ENV PIP_NO_CACHE_DIR=1 \
 WORKDIR /workspace/apps/crawler
 
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install scrapy redis mysqlclient
+    && pip install scrapy redis mysqlclient duckdb
 
 CMD ["sleep", "infinity"]
