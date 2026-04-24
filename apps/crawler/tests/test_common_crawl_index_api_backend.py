@@ -90,7 +90,9 @@ def test_config_defaults():
     assert cfg.requests_per_crawl == 3
     assert cfg.page_size == 100
     assert cfg.request_delay_seconds == 1.0
-    assert cfg.timeout_seconds == 45.0
+    assert cfg.timeout_seconds == 60.0
+    assert cfg.max_retries == 2
+    assert cfg.retry_base_delay_seconds == 8.0
     assert cfg.user_agent  # non-empty string
 
 
@@ -122,28 +124,39 @@ def _backend(tld_targets=None, crawls=None, delay=0.0, page_size=10, requests_pe
     return CommonCrawlIndexApiBackend(config=cfg)
 
 
-def test_tld_derivation_from_countries():
+def test_tld_derivation_skips_oversized_tlds():
+    """.de and .nl are oversized and excluded when derived from countries."""
     b = _backend()
     tlds = b._get_tlds(["de", "nl"])
+    assert "de" not in tlds
+    assert "nl" not in tlds
+
+
+def test_tld_config_override_bypasses_oversized_guard():
+    """Explicit tld_targets override lets callers force-include any TLD."""
+    b = _backend(tld_targets=["de", "nl"])
+    tlds = b._get_tlds(["ae"])   # country arg is ignored when tld_targets set
     assert "de" in tlds
     assert "nl" in tlds
 
 
-def test_tld_config_override_ignores_countries():
-    b = _backend(tld_targets=["ch"])
-    tlds = b._get_tlds(["de", "nl"])
-    assert tlds == ["ch"]
-
-
-def test_tld_derivation_fallback_to_com():
-    """Unknown country codes fall back to 'com'."""
+def test_tld_derivation_small_tlds_pass():
+    """Small TLDs (.ae, .ch, .at, .se) are included when derived from countries."""
     b = _backend()
-    tlds = b._get_tlds(["xx"])  # no mapping
-    assert tlds == ["com"]
+    tlds = b._get_tlds(["ae", "ch"])
+    assert "ae" in tlds
+    assert "ch" in tlds
+
+
+def test_tld_derivation_unknown_country_returns_empty():
+    """Unknown country codes produce an empty list (no fallback to .com)."""
+    b = _backend()
+    tlds = b._get_tlds(["xx"])
+    assert tlds == []
 
 
 def test_tld_derivation_us_returns_us_only():
-    """US maps to .us only — .com is skipped (too large for the CDX Index API)."""
+    """US maps to .us only — .com is in _OVERSIZED_TLDS and is skipped."""
     b = _backend()
     tlds = b._get_tlds(["us"])
     assert "us" in tlds
@@ -197,22 +210,20 @@ def test_non_html_mime_filtered():
 
 
 def test_deduplication_across_pages():
-    """The same domain returned by multiple pages/patterns must appear once."""
-    b = _backend(requests_per_crawl=2, page_size=10, delay=0.0)
+    """The same domain returned by multiple pages must appear once."""
+    b = _backend(tld_targets=["ae"], requests_per_crawl=2, page_size=10, delay=0.0)
 
-    # Two identical records (same domain)
-    duplicate_line = _valid_record(url="https://shop.de/products/1")
-    page_text = duplicate_line + "\n" + _valid_record(url="https://shop.de/products/2")
+    duplicate_line = _valid_record(url="https://shop.ae/products/1")
+    page_text = duplicate_line + "\n" + _valid_record(url="https://shop.ae/products/2")
 
     with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
         mock_req.RequestException = _RequestException
         mock_req.get.return_value = _make_response(200, page_text)
 
-        results = b.fetch_candidates(patterns=["/products/"], limit=100, countries=["de"])
+        results = b.fetch_candidates(patterns=["/products/"], limit=100, countries=[])
 
-    # shop.de must appear exactly once despite two URLs from same domain
     domains = [r.normalized_domain for r in results]
-    assert domains.count("shop.de") == 1
+    assert domains.count("shop.ae") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -281,29 +292,29 @@ def test_request_exception_is_handled_gracefully():
 
 def test_source_metadata_fields():
     crawl_id = "CC-MAIN-2025-13"
-    b = _backend(tld_targets=["de"], crawls=[crawl_id], delay=0.0)
+    b = _backend(tld_targets=["ae"], crawls=[crawl_id], delay=0.0)
 
     line = _json_line(
-        url="https://tiny-shop.de/products/item",
+        url="https://tiny-shop.ae/products/item",
         status="200",
         mime="text/html",
-        languages="de",
+        languages="ar",
     )
 
     with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
         mock_req.RequestException = _RequestException
         mock_req.get.return_value = _make_response(200, line)
 
-        results = b.fetch_candidates(patterns=["/products/"], limit=1, countries=["de"])
+        results = b.fetch_candidates(patterns=["/products/"], limit=1, countries=[])
 
     assert results, "Expected at least one result"
     meta = results[0].source_metadata
     assert meta["backend"] == "cc_index_api"
     assert meta["crawl"] == crawl_id
-    assert meta["tld_target"] == "de"
+    assert meta["tld_target"] == "ae"
     assert meta["status"] == "200"
     assert meta["mime"] == "text/html"
-    assert meta["languages"] == "de"
+    assert meta["languages"] == "ar"
 
 
 # ---------------------------------------------------------------------------
@@ -313,12 +324,12 @@ def test_source_metadata_fields():
 
 def test_integration_giants_blocked():
     """Well-known enterprise giants must be blocked by CommonCrawlDomainFilter."""
-    b = _backend(tld_targets=["de"], delay=0.0)
+    b = _backend(tld_targets=["ae"], delay=0.0)
 
     lines = "\n".join([
-        _valid_record(url="https://zalando.de/products/dress"),
-        _valid_record(url="https://otto.de/products/tv"),
-        _valid_record(url="https://tiny-boutique.de/products/hat"),
+        _valid_record(url="https://amazon.com/products/x"),
+        _valid_record(url="https://ebay.com/products/y"),
+        _valid_record(url="https://tiny-boutique.ae/products/hat"),
     ])
 
     with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
@@ -329,12 +340,12 @@ def test_integration_giants_blocked():
             backend=b,
             domain_filter=CommonCrawlDomainFilter(),
         )
-        discovered = service.discover(patterns=["/products/"], limit=100, countries=["de"])
+        discovered = service.discover(patterns=["/products/"], limit=100, countries=[])
 
     domains = [c.domain for c in discovered]
-    assert "zalando.de" not in domains
-    assert "otto.de" not in domains
-    assert "tiny-boutique.de" in domains
+    assert "amazon.com" not in domains
+    assert "ebay.com" not in domains
+    assert "tiny-boutique.ae" in domains
 
 
 def test_integration_source_type():
@@ -513,33 +524,33 @@ def test_local_path_matching_rejects_non_matching_url():
 
 def test_local_path_matching_filters_records_without_pattern():
     """Records whose URL does not contain any target path segment are skipped."""
-    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], delay=0.0)
+    b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], delay=0.0)
 
     lines = "\n".join([
-        _valid_record(url="https://a.de/about-us"),        # no match
-        _valid_record(url="https://b.de/products/shirt"),  # match
-        _valid_record(url="https://c.de/contact"),         # no match
+        _valid_record(url="https://a.ae/about-us"),        # no match
+        _valid_record(url="https://b.ae/products/shirt"),  # match
+        _valid_record(url="https://c.ae/contact"),         # no match
     ])
 
     with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
         mock_req.RequestException = _RequestException
         mock_req.get.return_value = _make_response(200, lines)
 
-        results = b.fetch_candidates(patterns=["/products/"], limit=100, countries=["de"])
+        results = b.fetch_candidates(patterns=["/products/"], limit=100, countries=[])
 
     domains = [r.normalized_domain for r in results]
-    assert "b.de" in domains
-    assert "a.de" not in domains
-    assert "c.de" not in domains
+    assert "b.ae" in domains
+    assert "a.ae" not in domains
+    assert "c.ae" not in domains
 
 
 def test_single_cdx_request_per_page_checks_all_patterns():
     """One HTTP request per page; all patterns checked locally — no per-pattern requests."""
-    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
+    b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
 
     lines = "\n".join([
-        _valid_record(url="https://x.de/shop/hats"),
-        _valid_record(url="https://y.de/checkout"),
+        _valid_record(url="https://x.ae/shop/hats"),
+        _valid_record(url="https://y.ae/checkout"),
     ])
 
     call_count = 0
@@ -554,14 +565,14 @@ def test_single_cdx_request_per_page_checks_all_patterns():
         mock_req.get.side_effect = fake_get
 
         results = b.fetch_candidates(
-            patterns=["/shop/", "/checkout"], limit=100, countries=["de"]
+            patterns=["/shop/", "/checkout"], limit=100, countries=[]
         )
 
     # Only 1 HTTP request (not 1 per pattern)
     assert call_count == 1
     domains = [r.normalized_domain for r in results]
-    assert "x.de" in domains
-    assert "y.de" in domains
+    assert "x.ae" in domains
+    assert "y.ae" in domains
 
 
 # ---------------------------------------------------------------------------
@@ -569,24 +580,18 @@ def test_single_cdx_request_per_page_checks_all_patterns():
 # ---------------------------------------------------------------------------
 
 
-def test_http_504_skips_combination_and_continues():
-    """504 gateway timeout must be caught; remaining combos still run."""
-    # Two TLDs: first returns 504, second returns a valid record.
-    b = _backend(
-        tld_targets=["ae", "de"],
-        crawls=["CC-MAIN-2025-13"],
-        requests_per_crawl=1,
-        delay=0.0,
-    )
+def test_http_504_retries_then_skips():
+    """504 is retried up to max_retries times, then the combination is skipped."""
+    b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
+    b.config.max_retries = 2
+    b.config.retry_base_delay_seconds = 0.0  # no sleep in tests
 
-    responses = {
-        "ae": _make_response(504, ""),
-        "de": _make_response(200, _valid_record(url="https://klein-shop.de/products/x")),
-    }
+    call_count = 0
 
     def fake_get(url, **kwargs):
-        tld = "ae" if ".ae" in url else "de"
-        return responses[tld]
+        nonlocal call_count
+        call_count += 1
+        return _make_response(504, "")
 
     with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
         mock_req.RequestException = _RequestException
@@ -594,31 +599,109 @@ def test_http_504_skips_combination_and_continues():
 
         results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=[])
 
-    # .de result must come through despite .ae 504
+    # 1 original attempt + 2 retries = 3 total calls
+    assert call_count == 3
+    assert results == []
+
+
+def test_http_504_succeeds_on_retry():
+    """504 on first attempt followed by 200 on retry yields results."""
+    b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
+    b.config.max_retries = 1
+    b.config.retry_base_delay_seconds = 0.0
+
+    responses = [
+        _make_response(504, ""),
+        _make_response(200, _valid_record(url="https://good-shop.ae/products/item")),
+    ]
+    call_count = 0
+
+    def fake_get(url, **kwargs):
+        nonlocal call_count
+        resp = responses[min(call_count, len(responses) - 1)]
+        call_count += 1
+        return resp
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.side_effect = fake_get
+
+        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=[])
+
+    assert call_count == 2  # 1 fail + 1 success
+    assert any(r.normalized_domain == "good-shop.ae" for r in results)
+
+
+def test_http_504_skips_tld_and_continues_to_next():
+    """After exhausting retries on one TLD, the backend continues to the next."""
+    b = _backend(
+        tld_targets=["ae", "ch"],
+        crawls=["CC-MAIN-2025-13"],
+        requests_per_crawl=1,
+        delay=0.0,
+    )
+    b.config.max_retries = 0  # no retries — fail fast
+    b.config.retry_base_delay_seconds = 0.0
+
+    def fake_get(url, **kwargs):
+        if "*.ae" in url:
+            return _make_response(504, "")
+        return _make_response(200, _valid_record(url="https://klein-shop.ch/products/x"))
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.side_effect = fake_get
+
+        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=[])
+
     domains = [r.normalized_domain for r in results]
-    assert "klein-shop.de" in domains
+    assert "klein-shop.ch" in domains
 
 
-def test_http_503_handled_same_as_504():
-    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
+def test_http_503_retried_same_as_504():
+    b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=1, delay=0.0)
+    b.config.max_retries = 0
+    b.config.retry_base_delay_seconds = 0.0
 
     with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
         mock_req.RequestException = _RequestException
         mock_req.get.return_value = _make_response(503, "")
 
-        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=["de"])
+        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=[])
 
     assert results == []
 
 
 # ---------------------------------------------------------------------------
-# 14d. Oversized TLD skip (.com / .net / .org)
+# 14d. Oversized TLD guard (.com / .net / .org / .de / .nl)
 # ---------------------------------------------------------------------------
 
 
-def test_oversized_tld_skipped_no_request():
-    """Querying .com via CDX Index API is skipped with a warning; no HTTP call made."""
+def test_oversized_tld_from_countries_makes_no_request():
+    """When countries=['de'] the derived TLD is oversized — no HTTP call made."""
+    b = _backend(crawls=["CC-MAIN-2025-13"], delay=0.0)
+
+    call_count = 0
+
+    def fake_get(url, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return _make_response(200, _valid_record())
+
+    with patch("lead_crawler.services.common_crawl_index_api_backend.requests") as mock_req:
+        mock_req.RequestException = _RequestException
+        mock_req.get.side_effect = fake_get
+
+        results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=["de"])
+
+    assert call_count == 0, "Expected zero HTTP calls — .de is oversized"
+    assert results == []
+
+
+def test_oversized_tld_via_explicit_targets_still_skips():
+    """Even explicit tld_targets=[com] results in zero requests (oversized guard)."""
     b = _backend(tld_targets=["com"], crawls=["CC-MAIN-2025-13"], delay=0.0)
+    b.config.max_retries = 0
 
     call_count = 0
 
@@ -633,13 +716,14 @@ def test_oversized_tld_skipped_no_request():
 
         results = b.fetch_candidates(patterns=["/products/"], limit=50, countries=[])
 
-    assert call_count == 0, "Expected zero HTTP calls for oversized TLD"
+    assert call_count == 0
     assert results == []
 
 
 def test_us_country_does_not_trigger_com_query():
-    """.com must not be queried when countries=['us'] — only .us is used now."""
+    """.com must not be queried when countries=['us'] — .us is used instead."""
     b = _backend(crawls=["CC-MAIN-2025-13"], delay=0.0)
+    b.config.max_retries = 0
 
     urls_called: list[str] = []
 
@@ -653,18 +737,18 @@ def test_us_country_does_not_trigger_com_query():
 
         b.fetch_candidates(patterns=["/products/"], limit=50, countries=["us"])
 
-    for called_url in urls_called:
-        assert "*.com" not in called_url, f"Unexpected .com query: {called_url}"
+    for url in urls_called:
+        assert "*.com" not in url, f"Unexpected .com query: {url}"
 
 
 def test_early_stop_on_sparse_page():
     """When a page returns fewer than page_size/2 rows, pagination stops."""
-    b = _backend(tld_targets=["de"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=5, page_size=10, delay=0.0)
+    b = _backend(tld_targets=["ae"], crawls=["CC-MAIN-2025-13"], requests_per_crawl=5, page_size=10, delay=0.0)
 
     # Only 2 rows on the first page (< 10/2 = 5) → should stop after page 0
     two_rows = "\n".join([
-        _valid_record(url="https://a.de/products/x"),
-        _valid_record(url="https://b.de/products/x"),
+        _valid_record(url="https://a.ae/products/x"),
+        _valid_record(url="https://b.ae/products/x"),
     ])
 
     call_count = 0
