@@ -142,11 +142,13 @@ class CommonCrawlDuckDbBackend:
         return str(dataset).startswith("https://")
 
     def _setup_connection(self, conn: object, dataset: str | list[str]) -> None:
-        """Install/load httpfs extension when querying HTTPS sources."""
+        """Install/load httpfs extension and enable HTTP glob support for HTTPS sources."""
         if self.config.install_httpfs and self._is_https(dataset):
             try:
                 conn.execute("INSTALL httpfs")
                 conn.execute("LOAD httpfs")
+                # DuckDB disables * globs over HTTP by default; CC paths require them.
+                conn.execute("SET allow_asterisks_in_http_paths = true")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("DuckDB httpfs setup warning: %s", exc)
 
