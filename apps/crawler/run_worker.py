@@ -565,9 +565,9 @@ def _build_common_crawl_backend(payload):
 
     if backend_name == "duckdb":
         config = CommonCrawlDuckDbConfig(
-            crawls=payload.get("cc_crawls") or None,
-            dataset_path=payload.get("duckdb_dataset_path") or None,
-            database=str(payload.get("duckdb_database", ":memory:")),
+                        crawls=payload.get("cc_crawls"),
+                        dataset_path=payload.get("duckdb_dataset_path"),
+                        cc_files_per_crawl=int(payload.get("cc_files_per_crawl", 3)),
         )
         return CommonCrawlDuckDbBackend(config=config), backend_name
 
