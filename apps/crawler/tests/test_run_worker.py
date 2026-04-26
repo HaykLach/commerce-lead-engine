@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 sys.modules.setdefault("requests", Mock())
+sys.modules.setdefault("bs4", Mock())
 
 import run_worker
 
@@ -227,3 +228,33 @@ def test_process_domain_discovery_expansion_ingests_domains(monkeypatch):
     assert result["job_type"] == "domain_discovery_expansion"
     assert result["ingested_count"] == 1
     assert ingested[0][0]["source_type"] == "expansion"
+
+
+def test_process_common_crawl_import(monkeypatch):
+    class FakeImporter:
+        def run_import(self, payload):
+            assert payload["job_type"] == "common_crawl_import"
+            return {"job_type": "common_crawl_import", "domains_upserted": 12}
+
+    monkeypatch.setattr(run_worker, "CommonCrawlImporter", lambda: FakeImporter())
+    result = run_worker.process_common_crawl_import(
+        {"crawl_payload": {"job_type": "common_crawl_import", "backend": "duckdb_import"}}
+    )
+
+    assert result["job_type"] == "common_crawl_import"
+    assert result["domains_upserted"] == 12
+
+
+def test_process_domain_discovery_local_index_forces_local_backend(monkeypatch):
+    def fake_process(job):
+        assert job["crawl_payload"]["backend"] == "local_index"
+        return {"job_type": "domain_discovery_common_crawl", "backend": "local_index", "ingested_count": 1}
+
+    monkeypatch.setattr(run_worker, "process_domain_discovery_common_crawl", fake_process)
+
+    result = run_worker.process_domain_discovery_local_index(
+        {"crawl_payload": {"job_type": "domain_discovery_local_index", "countries": ["de"], "limit": 10}}
+    )
+
+    assert result["job_type"] == "domain_discovery_local_index"
+    assert result["backend"] == "local_index"
