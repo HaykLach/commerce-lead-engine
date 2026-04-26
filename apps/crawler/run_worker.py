@@ -20,6 +20,8 @@ from lead_crawler.services.common_crawl_discovery_service import CommonCrawlDisc
 from lead_crawler.services.common_crawl_domain_filter import CommonCrawlDomainFilter
 from lead_crawler.services.common_crawl_duckdb_backend import CommonCrawlDuckDbBackend, CommonCrawlDuckDbConfig
 from lead_crawler.services.common_crawl_index_api_backend import CommonCrawlIndexApiBackend, CommonCrawlIndexApiConfig
+from lead_crawler.services.common_crawl_importer import CommonCrawlImporter
+from lead_crawler.services.common_crawl_local_index_backend import CommonCrawlLocalIndexBackend, CommonCrawlLocalIndexConfig
 from lead_crawler.services.common_crawl_url_pattern_builder import CommonCrawlUrlPatternBuilder
 from lead_crawler.services.sme_tranco_filter import SmeTrancoFilter
 
@@ -592,6 +594,12 @@ def _build_common_crawl_backend(payload):
         )
         return CommonCrawlIndexApiBackend(config=config), backend_name
 
+    if backend_name == "local_index":
+        config = CommonCrawlLocalIndexConfig(
+            min_sme_score=float(payload.get("min_sme_score", 0.0)),
+        )
+        return CommonCrawlLocalIndexBackend(config=config), backend_name
+
     raise ValueError(f"Unsupported Common Crawl backend: {backend_name}")
 
 
@@ -673,6 +681,27 @@ def process_domain_discovery_common_crawl(job):
     }
 
 
+def process_common_crawl_import(job):
+    payload = job.get("crawl_payload") or {}
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+
+    importer = CommonCrawlImporter()
+    return importer.run_import(payload)
+
+
+def process_domain_discovery_local_index(job):
+    payload = job.get("crawl_payload") or {}
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    payload.setdefault("job_type", "domain_discovery_common_crawl")
+    payload["backend"] = "local_index"
+    job["crawl_payload"] = payload
+    result = process_domain_discovery_common_crawl(job)
+    result["job_type"] = "domain_discovery_local_index"
+    return result
+
+
 
 def run():
     print("🚀 Worker started...")
@@ -715,6 +744,10 @@ def run():
                 result = process_domain_discovery_expansion(job)
             elif job_type == "domain_discovery_common_crawl":
                 result = process_domain_discovery_common_crawl(job)
+            elif job_type == "common_crawl_import":
+                result = process_common_crawl_import(job)
+            elif job_type == "domain_discovery_local_index":
+                result = process_domain_discovery_local_index(job)
             else:
                 raise ValueError(f"Unknown job type: {job_type}")
 

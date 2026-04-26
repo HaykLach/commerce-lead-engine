@@ -1,6 +1,11 @@
 # Common Crawl Discovery Runbook
 
-This runbook explains how to launch a `domain_discovery_common_crawl` crawl job end-to-end in local Docker.
+This runbook documents both Common Crawl flows:
+
+1. **Recommended production path**
+   `common_crawl_import` (heavy offline import) -> MySQL `common_crawl_domains` index -> `domain_discovery_local_index` (fast lead jobs).
+2. **Direct/debug path**
+   `domain_discovery_common_crawl` with `duckdb` / `cc_index_api`.
 
 ## 1) Start services
 
@@ -42,9 +47,63 @@ curl -sS -X POST 'http://localhost:8080/api/v1/internal/domains/upsert' \
 
 Copy the returned `data.id` value for the next step.
 
-## 4) Queue a Common Crawl discovery job
+## 4) Queue jobs
 
-### Option A — `cc_index_api` (recommended)
+### Option A — recommended two-stage architecture
+
+#### Stage 1: import parquet data into local MySQL index
+
+```bash
+cat >/tmp/cc-import-job.json <<'JSON'
+{
+  "domain_id": 1,
+  "status": "queued",
+  "trigger_type": "manual",
+  "priority": 1,
+  "crawl_payload": {
+    "job_type": "common_crawl_import",
+    "backend": "duckdb_import",
+    "countries": ["de"],
+    "cc_crawls": ["CC-MAIN-2025-13"],
+    "cc_files_per_crawl": 3,
+    "batch_size": 1000,
+    "delete_after_process": true
+  }
+}
+JSON
+
+curl -sS -X POST 'http://localhost:8080/api/v1/internal/crawl-jobs' \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/cc-import-job.json
+```
+
+#### Stage 2: query the local index only (no S3/parquet during lead job)
+
+```bash
+cat >/tmp/local-index-lead-job.json <<'JSON'
+{
+  "domain_id": 1,
+  "status": "queued",
+  "trigger_type": "manual",
+  "priority": 1,
+  "crawl_payload": {
+    "job_type": "domain_discovery_local_index",
+    "backend": "local_index",
+    "countries": ["de"],
+    "limit": 100,
+    "min_sme_score": 0.3
+  }
+}
+JSON
+
+curl -sS -X POST 'http://localhost:8080/api/v1/internal/crawl-jobs' \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/local-index-lead-job.json
+```
+
+### Option B — direct discovery (debugging path)
+
+#### `cc_index_api` backend
 
 No local parquet required; fetches from Common Crawl index API.
 
@@ -77,7 +136,7 @@ curl -sS -X POST 'http://localhost:8080/api/v1/internal/crawl-jobs' \
   --data-binary @/tmp/cc-job.json
 ```
 
-### Option B — `duckdb` backend
+#### `duckdb` backend
 
 Use this for local prototype against local parquet file.
 

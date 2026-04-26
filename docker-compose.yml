@@ -64,6 +64,7 @@ services:
     working_dir: /workspace/apps/crawler
     volumes:
       - ./apps/crawler:/workspace/apps/crawler:delegated
+      - cc_cache:/tmp/common-crawl-cache
     environment:
       PYTHONUNBUFFERED: "1"
       MYSQL_HOST: mysql
@@ -73,9 +74,10 @@ services:
       MYSQL_PASSWORD: app
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      AWS_ACCESS_KEY_ID:
-      AWS_SECRET_ACCESS_KEY:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: us-east-1
+      COMMON_CRAWL_CACHE_DIR: /tmp/common-crawl-cache
     depends_on:
       - mysql
       - redis
@@ -86,6 +88,7 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  cc_cache:
 
 networks:
   app:
