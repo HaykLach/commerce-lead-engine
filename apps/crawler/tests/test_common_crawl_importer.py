@@ -18,47 +18,49 @@ def test_pattern_match_score_accumulates_and_clamps():
     assert "checkout" in matched
 
 
-def test_aggregate_rows_merges_domain_scores():
+def test_detect_country_signals_matches_tld_and_url_patterns():
+    importer = CommonCrawlImporter()
+    matched, signals = importer.detect_country_signals(
+        url="https://www.shop.example.com/de/produkte/schuhe",
+        domain="shop.example.com",
+        country="de",
+    )
+    assert matched is True
+    assert "url:/de/" in signals
+    assert "url:/produkte" in signals
+
+
+def test_detect_country_signals_returns_false_for_unsupported_country():
+    importer = CommonCrawlImporter()
+    matched, signals = importer.detect_country_signals(
+        url="https://www.example.com/products",
+        domain="example.com",
+        country="ae",
+    )
+    assert matched is False
+    assert signals == []
+
+
+def test_run_import_requires_exactly_one_supported_country():
     importer = CommonCrawlImporter()
 
-    rows = [
-        ("https://store.example.de/products/sku-1", "de", "store.example.de", "CC-MAIN-2025-13", "warc"),
-        ("https://store.example.de/cart", "de", "store.example.de", "CC-MAIN-2025-13", "warc"),
-        ("https://store.example.de/checkout", "de", "store.example.de", "CC-MAIN-2025-13", "warc"),
-    ]
-    aggregated, stats = importer._aggregate_rows(
-        rows,
-        fallback_crawl_id="CC-MAIN-2025-13",
-        countries=[],
-        minimum_import_score=0.05,
-    )
+    try:
+        importer.run_import({"countries": []})
+    except ValueError as exc:
+        assert "Exactly one country must be provided" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for empty countries.")
 
-    assert "store.example.de" in aggregated
-    entry = aggregated["store.example.de"]
-    assert entry["ecommerce_score"] > 0.5
-    assert "product" in entry["matched_patterns"]
-    assert "cart" in entry["matched_patterns"]
-    assert stats.rows_read_before_filters == 3
-    assert stats.rows_accepted_after_country_filter == 3
+    try:
+        importer.run_import({"countries": ["de", "nl"]})
+    except ValueError as exc:
+        assert "Exactly one country must be provided" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for multiple countries.")
 
-
-def test_aggregate_rows_filters_country_by_normalized_domain_tld_and_applies_minimum_score():
-    importer = CommonCrawlImporter()
-    rows = [
-        ("https://www.shop.example.de/about", "", "www.shop.example.de", "CC-MAIN-2025-13", "warc"),
-        ("https://store.example.fr/products/1", "", "store.example.fr", "CC-MAIN-2025-13", "warc"),
-        ("notaurl", "", "", "CC-MAIN-2025-13", "warc"),
-    ]
-
-    aggregated, stats = importer._aggregate_rows(
-        rows,
-        fallback_crawl_id="CC-MAIN-2025-13",
-        countries=["de"],
-        minimum_import_score=0.05,
-    )
-
-    assert "shop.example.de" in aggregated
-    assert aggregated["shop.example.de"]["ecommerce_score"] == 0.05
-    assert "store.example.fr" not in aggregated
-    assert stats.rows_skipped_country_filter == 1
-    assert stats.rows_skipped_invalid_domain == 1
+    try:
+        importer.run_import({"countries": ["ae"]})
+    except ValueError as exc:
+        assert "Unsupported country" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for unsupported country.")
