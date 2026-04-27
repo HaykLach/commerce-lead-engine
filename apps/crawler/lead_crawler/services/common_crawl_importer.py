@@ -23,6 +23,19 @@ _CC_S3_BUCKET = "commoncrawl"
 _CC_S3_PREFIX_TEMPLATE = "cc-index/table/cc-main/warc/crawl={crawl_id}/subset=warc/"
 _VALID_FETCH_STATUSES = (200, 301, 302)
 _DEFAULT_CRAWLS = ["CC-MAIN-2025-13"]
+_DEFAULT_MINIMUM_IMPORT_SCORE = 0.05
+
+
+@dataclass(slots=True)
+class FileProcessingStats:
+    rows_read_before_filters: int = 0
+    rows_skipped_invalid_domain: int = 0
+    rows_skipped_country_filter: int = 0
+    rows_accepted_after_country_filter: int = 0
+    domains_extracted: int = 0
+    domains_upserted: int = 0
+    raw_row_samples_logged: int = 0
+    accepted_domain_samples_logged: int = 0
 
 
 @dataclass(slots=True)
@@ -92,28 +105,22 @@ class CommonCrawlImporter:
         logger.info("Download completed: %s", local_path)
         return local_path
 
-    def _extract_rows_from_parquet(self, local_path: str, countries: list[str]) -> list[tuple]:
+    def _extract_rows_from_parquet(self, local_path: str, crawl_id: str) -> list[tuple]:
         try:
             import duckdb  # type: ignore
         except ModuleNotFoundError as exc:
             raise RuntimeError("duckdb is required for Common Crawl import jobs (pip install duckdb).") from exc
-
-        tld_filter_sql = ""
-        if countries:
-            tlds = ", ".join(f"'{country.lower()}'" for country in countries if str(country).strip())
-            tld_filter_sql = f" AND lower(coalesce(url_host_tld, '')) IN ({tlds})"
 
         sql = f"""
 SELECT
     coalesce(url, '') AS url,
     lower(coalesce(url_host_tld, '')) AS tld,
     lower(coalesce(url_host_name, '')) AS host,
-    coalesce(crawl, '') AS crawl,
-    coalesce(subset, '') AS subset
+    '{crawl_id}' AS crawl,
+    'warc' AS subset
 FROM read_parquet('{local_path}', union_by_name=true)
 WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
   AND lower(coalesce(content_mime_detected, '')) LIKE '%text/html%'
-  {tld_filter_sql}
 """.strip()
         logger.info("DuckDB SQL for local file %s:\n%s", local_path, sql)
 
@@ -123,24 +130,55 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
         logger.info("DuckDB rows returned for %s: %d", local_path, len(rows))
         return rows
 
-    def _aggregate_rows(self, rows: list[tuple], fallback_crawl_id: str) -> dict[str, dict]:
+    def _aggregate_rows(
+        self,
+        rows: list[tuple],
+        fallback_crawl_id: str,
+        countries: list[str],
+        minimum_import_score: float,
+    ) -> tuple[dict[str, dict], FileProcessingStats]:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         aggregated: dict[str, dict] = {}
+        stats = FileProcessingStats(rows_read_before_filters=len(rows))
+        countries_normalized = [str(country).strip().lower() for country in countries if str(country).strip()]
 
-        for url, tld, host, crawl, _subset in rows:
+        for index, row in enumerate(rows, start=1):
+            url, tld, host, crawl, _subset = row
+            if stats.raw_row_samples_logged < 10:
+                logger.info("Sample CC row %s: url=%s parquet_tld=%s host=%s", index, url, tld, host)
+                stats.raw_row_samples_logged += 1
+
             domain = self._normalizer.normalize(host or urlsplit(url).netloc)
             if not domain:
+                stats.rows_skipped_invalid_domain += 1
                 continue
 
+            domain_tld = domain.rsplit(".", 1)[-1].lower()
+            if countries_normalized and domain_tld not in countries_normalized:
+                stats.rows_skipped_country_filter += 1
+                continue
+
+            stats.rows_accepted_after_country_filter += 1
             score, matched_patterns = self.pattern_match_score(url)
             if score <= 0:
-                continue
+                score = minimum_import_score
+
+            if stats.accepted_domain_samples_logged < 10:
+                logger.info(
+                    "Accepted domain sample %s: domain=%s domain_tld=%s score=%.3f source_url=%s",
+                    stats.accepted_domain_samples_logged + 1,
+                    domain,
+                    domain_tld,
+                    score,
+                    url,
+                )
+                stats.accepted_domain_samples_logged += 1
 
             entry = aggregated.get(domain)
             if entry is None:
                 aggregated[domain] = {
                     "domain": domain,
-                    "tld": (tld or domain.rsplit(".", 1)[-1]).lower(),
+                    "tld": domain_tld,
                     "ecommerce_score": score,
                     "matched_patterns": set(matched_patterns),
                     "source_url": url,
@@ -156,7 +194,8 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
             entry["crawl_id"] = crawl or fallback_crawl_id
             entry["last_seen_at"] = now
 
-        return aggregated
+        stats.domains_extracted = len(aggregated)
+        return aggregated, stats
 
     def _mysql_connection(self):
         try:
@@ -255,14 +294,16 @@ ON DUPLICATE KEY UPDATE
         countries = [str(country).lower() for country in (payload.get("countries") or []) if str(country).strip()]
         batch_size = max(1, int(payload.get("batch_size", 1000)))
         delete_after_process = bool(payload.get("delete_after_process", True))
+        minimum_import_score = float(payload.get("minimum_import_score", _DEFAULT_MINIMUM_IMPORT_SCORE))
 
         logger.info(
-            "Starting Common Crawl import: crawls=%s countries=%s files_per_crawl=%s batch_size=%s delete_after_process=%s cache_dir=%s",
+            "Starting Common Crawl import: crawls=%s countries=%s files_per_crawl=%s batch_size=%s delete_after_process=%s minimum_import_score=%s cache_dir=%s",
             crawls,
             countries,
             files_per_crawl,
             batch_size,
             delete_after_process,
+            minimum_import_score,
             self.config.cache_dir,
         )
 
@@ -274,6 +315,10 @@ ON DUPLICATE KEY UPDATE
         files_skipped = 0
         total_domains_extracted = 0
         domains_upserted = 0
+        rows_read_before_filters = 0
+        rows_skipped_invalid_domain = 0
+        rows_skipped_country_filter = 0
+        rows_accepted_after_country_filter = 0
         listed_keys: list[str] = []
         downloaded_keys: list[str] = []
         processed_keys: list[str] = []
@@ -291,14 +336,30 @@ ON DUPLICATE KEY UPDATE
                     files_downloaded += 1
                     downloaded_keys.append(key)
 
-                    rows = self._extract_rows_from_parquet(local_path, countries)
-                    domains_map = self._aggregate_rows(rows, fallback_crawl_id=crawl_id)
-                    file_domains = len(domains_map)
+                    rows = self._extract_rows_from_parquet(local_path, crawl_id=crawl_id)
+                    domains_map, file_stats = self._aggregate_rows(
+                        rows,
+                        fallback_crawl_id=crawl_id,
+                        countries=countries,
+                        minimum_import_score=minimum_import_score,
+                    )
+                    rows_read_before_filters += file_stats.rows_read_before_filters
+                    rows_skipped_invalid_domain += file_stats.rows_skipped_invalid_domain
+                    rows_skipped_country_filter += file_stats.rows_skipped_country_filter
+                    rows_accepted_after_country_filter += file_stats.rows_accepted_after_country_filter
+                    file_domains = file_stats.domains_extracted
                     total_domains_extracted += file_domains
-                    logger.info("Domains extracted from %s: %d", local_path, file_domains)
+                    logger.info("DuckDB rows returned: %d", file_stats.rows_read_before_filters)
+                    logger.info("Rows skipped invalid domain: %d", file_stats.rows_skipped_invalid_domain)
+                    logger.info("Rows skipped by country filter: %d", file_stats.rows_skipped_country_filter)
+                    logger.info("Rows accepted after country filter: %d", file_stats.rows_accepted_after_country_filter)
+                    logger.info("Domains extracted: %d", file_domains)
 
                     if domains_map:
-                        domains_upserted += self._upsert_domains(domains_map, batch_size=batch_size)
+                        file_upserted = self._upsert_domains(domains_map, batch_size=batch_size)
+                        domains_upserted += file_upserted
+                        file_stats.domains_upserted = file_upserted
+                    logger.info("Domains upserted: %d", file_stats.domains_upserted)
                     files_processed += 1
                     processed_keys.append(key)
                 except Exception as exc:  # noqa: BLE001
@@ -329,6 +390,11 @@ ON DUPLICATE KEY UPDATE
             "parquet_keys_skipped": skipped_keys,
             "domains_extracted": total_domains_extracted,
             "domains_upserted": domains_upserted,
+            "rows_read_before_filters": rows_read_before_filters,
+            "rows_skipped_invalid_domain": rows_skipped_invalid_domain,
+            "rows_skipped_country_filter": rows_skipped_country_filter,
+            "rows_accepted_after_country_filter": rows_accepted_after_country_filter,
+            "minimum_import_score": minimum_import_score,
             "duration_seconds": duration_seconds,
         }
         logger.info("Common Crawl import summary: %s", summary)
