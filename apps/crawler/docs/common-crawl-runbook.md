@@ -65,9 +65,10 @@ cat >/tmp/cc-import-job.json <<'JSON'
     "backend": "duckdb_import",
     "countries": ["de"],
     "cc_crawls": ["CC-MAIN-2025-13"],
-    "cc_files_per_crawl": 3,
-    "batch_size": 1000,
-    "delete_after_process": true
+    "cc_files_per_crawl": 5,
+    "batch_size": 500,
+    "delete_after_process": true,
+    "minimum_import_score": 0.05
   }
 }
 JSON
