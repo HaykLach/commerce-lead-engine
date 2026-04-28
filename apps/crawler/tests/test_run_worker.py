@@ -2,6 +2,8 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 sys.modules.setdefault("requests", Mock())
 sys.modules.setdefault("bs4", Mock())
 
@@ -245,16 +247,66 @@ def test_process_common_crawl_import(monkeypatch):
     assert result["domains_upserted"] == 12
 
 
-def test_process_domain_discovery_local_index_forces_local_backend(monkeypatch):
-    def fake_process(job):
-        assert job["crawl_payload"]["backend"] == "local_index"
-        return {"job_type": "domain_discovery_common_crawl", "backend": "local_index", "ingested_count": 1}
+def test_process_domain_discovery_local_index_queries_and_ingests(monkeypatch):
+    selected_rows = [
+        {
+            "id": 101,
+            "domain": "shop-one.de",
+            "country": "de",
+            "tld": "de",
+            "ecommerce_score": 1.0,
+            "source_url": "https://shop-one.de/products",
+            "matched_patterns": ["product"],
+            "country_signals": {"lang": "de"},
+            "crawl_id": "CC-MAIN-2026-01",
+        }
+    ]
 
-    monkeypatch.setattr(run_worker, "process_domain_discovery_common_crawl", fake_process)
+    class FakeBackend:
+        def __init__(self, _config):
+            self.debug_counts_called = False
+
+        def fetch_domains_for_ingest(self, country, min_sme_score, limit, exclude_existing_domains):
+            assert country == "de"
+            assert min_sme_score == 0.0
+            assert limit == 10
+            assert exclude_existing_domains is False
+            return selected_rows
+
+        def local_index_debug_counts(self, country, min_sme_score, exclude_existing_domains):
+            self.debug_counts_called = True
+            return {}
+
+    ingested = []
+
+    monkeypatch.setattr(run_worker, "CommonCrawlLocalIndexBackend", lambda config: FakeBackend(config))
+    monkeypatch.setattr(
+        run_worker,
+        "ingest_discovered_domain",
+        lambda candidate, payload: ingested.append((candidate, payload)) or {"domain": candidate["domain"]},
+    )
 
     result = run_worker.process_domain_discovery_local_index(
-        {"crawl_payload": {"job_type": "domain_discovery_local_index", "countries": ["de"], "limit": 10}}
+        {"crawl_payload": {"job_type": "domain_discovery_local_index", "countries": ["de"], "limit": 10, "min_sme_score": 0, "exclude_existing_domains": False}}
     )
 
     assert result["job_type"] == "domain_discovery_local_index"
     assert result["backend"] == "local_index"
+    assert result["selected_count"] == 1
+    assert result["ingested_count"] == 1
+    assert ingested[0][0]["source_type"] == "common_crawl_local_index"
+    assert ingested[0][0]["source_context"]["common_crawl_domain_id"] == 101
+
+
+def test_process_domain_discovery_local_index_requires_single_country():
+    with pytest.raises(ValueError, match="Exactly one country must be provided"):
+        run_worker.process_domain_discovery_local_index(
+            {"crawl_payload": {"job_type": "domain_discovery_local_index", "countries": ["de", "fr"]}}
+        )
+
+
+def test_process_domain_discovery_local_index_rejects_unsupported_country():
+    with pytest.raises(ValueError, match="Unsupported country: br"):
+        run_worker.process_domain_discovery_local_index(
+            {"crawl_payload": {"job_type": "domain_discovery_local_index", "countries": ["br"]}}
+        )

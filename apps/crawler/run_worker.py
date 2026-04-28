@@ -50,6 +50,7 @@ NICHE_KEYWORDS = {
     "tech": ["electronics", "gadgets", "devices", "laptop", "phone accessories", "hardware", "smart home"],
     "b2b": ["wholesale", "distributor", "reseller", "dealer", "trade", "bulk order", "rfq", "request quote", "moq"],
 }
+SUPPORTED_LOCAL_INDEX_COUNTRIES = {"de", "nl", "fr", "it", "es", "ch", "us"}
 
 
 def _log_response(label, response):
@@ -691,15 +692,95 @@ def process_common_crawl_import(job):
 
 
 def process_domain_discovery_local_index(job):
-    payload = job.get("crawl_payload") or {}
+    payload = job.get("crawl_payload") if isinstance(job, dict) else {}
+    if not payload and isinstance(job, dict) and job.get("job_type"):
+        payload = job
     if isinstance(payload, str):
         payload = json.loads(payload)
-    payload.setdefault("job_type", "domain_discovery_common_crawl")
+    if not isinstance(payload, dict):
+        raise ValueError("crawl_payload must be an object")
+
+    countries = payload.get("countries") or []
+    if len(countries) != 1:
+        raise ValueError("Exactly one country must be provided for domain_discovery_local_index jobs")
+
+    country = str(countries[0]).strip().lower()
+    if country not in SUPPORTED_LOCAL_INDEX_COUNTRIES:
+        raise ValueError(f"Unsupported country: {country}")
+
+    limit = int(payload.get("limit", 500))
+    min_sme_score = float(payload.get("min_sme_score", 0.0))
+    exclude_existing_domains = bool(payload.get("exclude_existing_domains", True))
     payload["backend"] = "local_index"
-    job["crawl_payload"] = payload
-    result = process_domain_discovery_common_crawl(job)
-    result["job_type"] = "domain_discovery_local_index"
-    return result
+
+    print(
+        "[Worker] Local index config:"
+        f" country={country} limit={limit} min_sme_score={min_sme_score} "
+        f"exclude_existing_domains={str(exclude_existing_domains).lower()}"
+    )
+    print("[Worker] Local index query starting...")
+
+    backend = CommonCrawlLocalIndexBackend(CommonCrawlLocalIndexConfig(min_sme_score=min_sme_score))
+    rows = backend.fetch_domains_for_ingest(
+        country=country,
+        min_sme_score=min_sme_score,
+        limit=limit,
+        exclude_existing_domains=exclude_existing_domains,
+    )
+
+    print(f"[Worker] Local index rows selected: {len(rows)}")
+    if rows:
+        sample_domains = [str(row.get("domain")) for row in rows[:10]]
+        print(f"[Worker] Local index sample domains: {sample_domains}")
+    else:
+        debug_counts = backend.local_index_debug_counts(
+            country=country,
+            min_sme_score=min_sme_score,
+            exclude_existing_domains=exclude_existing_domains,
+        )
+        print(
+            "[Worker] Local index debug counts:"
+            f" country_total={debug_counts['country_total']}"
+            f" country_with_min_score_total={debug_counts['country_with_min_score_total']}"
+            f" exclude_existing_domains={str(exclude_existing_domains).lower()}"
+            f" country_with_min_score_excluding_existing_total="
+            f"{debug_counts['country_with_min_score_excluding_existing_total']}"
+        )
+
+    ingested = []
+    for row in rows:
+        candidate_payload = {
+            "domain": row["domain"],
+            "source_type": "common_crawl_local_index",
+            "keyword_seed": None,
+            "source_url": row.get("source_url") or f"https://{row['domain']}",
+            "source_context": {
+                "backend": "local_index",
+                "common_crawl_domain_id": row.get("id"),
+                "country": row.get("country"),
+                "tld": row.get("tld"),
+                "ecommerce_score": row.get("ecommerce_score"),
+                "matched_patterns": row.get("matched_patterns"),
+                "country_signals": row.get("country_signals"),
+                "crawl_id": row.get("crawl_id"),
+            },
+        }
+        ingested_domain = ingest_discovered_domain(candidate_payload, payload)
+        ingested.append(ingested_domain or candidate_payload)
+
+    print(f"[Worker] Local index ingested domains: {len(ingested)}")
+
+    return {
+        "job_type": "domain_discovery_local_index",
+        "backend": "local_index",
+        "country": country,
+        "min_sme_score": min_sme_score,
+        "limit": limit,
+        "exclude_existing_domains": exclude_existing_domains,
+        "selected_count": len(rows),
+        "ingested_count": len(ingested),
+        "domains": ingested,
+    }
 
 
 

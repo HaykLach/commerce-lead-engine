@@ -116,3 +116,117 @@ LIMIT %s
             )
 
         return candidates
+
+    def fetch_domains_for_ingest(
+        self,
+        country: str,
+        min_sme_score: float,
+        limit: int,
+        exclude_existing_domains: bool = True,
+    ) -> list[dict]:
+        effective_country = str(country or "").strip().lower()
+        effective_limit = max(1, int(limit))
+        effective_min_sme_score = float(min_sme_score or 0.0)
+
+        where_clauses = [
+            "c.country = %s",
+            "c.ecommerce_score >= %s",
+        ]
+        params: list = [effective_country, effective_min_sme_score]
+
+        if exclude_existing_domains:
+            where_clauses.append(
+                "NOT EXISTS (SELECT 1 FROM domains d WHERE d.domain = c.domain)"
+            )
+
+        sql = f"""
+SELECT
+    c.id,
+    c.domain,
+    c.country,
+    c.tld,
+    c.ecommerce_score,
+    c.source_url,
+    c.matched_patterns,
+    c.country_signals,
+    c.crawl_id
+FROM common_crawl_domains c
+WHERE {" AND ".join(where_clauses)}
+ORDER BY c.ecommerce_score DESC, c.last_seen_at DESC, c.id DESC
+LIMIT %s
+""".strip()
+        params.append(effective_limit)
+
+        with self._mysql_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+
+        columns = [
+            "id",
+            "domain",
+            "country",
+            "tld",
+            "ecommerce_score",
+            "source_url",
+            "matched_patterns",
+            "country_signals",
+            "crawl_id",
+        ]
+        return [self._coerce_row_dict(row, columns) for row in rows]
+
+    def local_index_debug_counts(
+        self,
+        country: str,
+        min_sme_score: float,
+        exclude_existing_domains: bool = True,
+    ) -> dict:
+        effective_country = str(country or "").strip().lower()
+        effective_min_sme_score = float(min_sme_score or 0.0)
+
+        with self._mysql_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM common_crawl_domains WHERE country = %s",
+                    [effective_country],
+                )
+                total_for_country = int(cursor.fetchone()[0])
+
+                cursor.execute(
+                    """
+SELECT COUNT(*)
+FROM common_crawl_domains
+WHERE country = %s AND ecommerce_score >= %s
+""".strip(),
+                    [effective_country, effective_min_sme_score],
+                )
+                total_for_country_with_score = int(cursor.fetchone()[0])
+
+                total_after_exclude_existing = None
+                if exclude_existing_domains:
+                    cursor.execute(
+                        """
+SELECT COUNT(*)
+FROM common_crawl_domains c
+WHERE c.country = %s
+  AND c.ecommerce_score >= %s
+  AND NOT EXISTS (
+      SELECT 1 FROM domains d WHERE d.domain = c.domain
+  )
+""".strip(),
+                        [effective_country, effective_min_sme_score],
+                    )
+                    total_after_exclude_existing = int(cursor.fetchone()[0])
+
+        return {
+            "country_total": total_for_country,
+            "country_with_min_score_total": total_for_country_with_score,
+            "country_with_min_score_excluding_existing_total": total_after_exclude_existing,
+        }
+
+    @staticmethod
+    def _coerce_row_dict(row, columns: list[str]) -> dict:
+        if isinstance(row, dict):
+            return {column: row.get(column) for column in columns}
+
+        return {column: row[index] if index < len(row) else None for index, column in enumerate(columns)}
