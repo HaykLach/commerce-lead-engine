@@ -20,11 +20,16 @@ class DiscoveredDomainIngestionController extends Controller
 
     public function store(IngestDiscoveredDomainRequest $request): JsonResponse
     {
-        $result = $this->discoveredDomainIngestionService->ingest($request->validated());
+        $result = $this->discoveredDomainIngestionService->ingest($request->all());
 
         return response()->json([
+            'status' => 'ok',
             'data' => [
-                'domain' => (new DomainResource($result['domain']))->resolve(),
+                'id' => $result['domain']->id,
+                'domain' => $result['domain']->domain,
+                'normalized_domain' => $result['domain']->normalized_domain,
+                'created' => $result['created'],
+                'domain_details' => (new DomainResource($result['domain']))->resolve(),
                 'domain_source' => [
                     'id' => $result['domain_source']->id,
                     'domain_id' => $result['domain_source']->domain_id,

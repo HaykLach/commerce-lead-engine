@@ -23,11 +23,14 @@ class DiscoveredDomainIngestionService
     public function ingest(array $payload): array
     {
         return DB::transaction(function () use ($payload): array {
-            $domain = $this->domainIngestionService->upsert([
-                'domain' => $payload['domain'],
-                'normalized_domain' => $payload['normalized_domain'] ?? null,
-                'last_seen_at' => now(),
+            $normalizedDomain = $this->normalizeDomain((string) ($payload['normalized_domain'] ?? $payload['domain'] ?? ''));
+            $domainExisted = Domain::query()->where('normalized_domain', $normalizedDomain)->exists();
+
+            $domainPayload = array_merge($payload, [
+                'normalized_domain' => $normalizedDomain,
             ]);
+
+            $domain = $this->domainIngestionService->upsert($domainPayload);
 
             $source = DomainSource::query()->firstOrCreate(
                 [
@@ -43,7 +46,7 @@ class DiscoveredDomainIngestionService
             );
 
             $jobs = [];
-            if (Arr::get($payload, 'enqueue_homepage_fetch', true)) {
+            if (Arr::get($payload, 'enqueue_homepage_fetch', false)) {
                 $jobs['homepage_fetch'] = $this->createDiscoveryFollowUpJob(
                     $domain,
                     'homepage_fetch',
@@ -51,7 +54,7 @@ class DiscoveredDomainIngestionService
                 );
             }
 
-            if (Arr::get($payload, 'enqueue_page_classification', true)) {
+            if (Arr::get($payload, 'enqueue_page_classification', false)) {
                 $jobs['page_classification'] = $this->createDiscoveryFollowUpJob(
                     $domain,
                     'page_classification',
@@ -63,6 +66,7 @@ class DiscoveredDomainIngestionService
                 'domain' => $domain->fresh(),
                 'domain_source' => $source,
                 'follow_up_jobs' => $jobs,
+                'created' => ! $domainExisted,
             ];
         });
     }
@@ -96,5 +100,16 @@ class DiscoveredDomainIngestionService
         $domain->update(['status' => DomainStatus::Queued]);
 
         return $created;
+    }
+
+    private function normalizeDomain(string $domain): string
+    {
+        $candidate = strtolower(trim($domain));
+        $candidate = preg_replace('/^https?:\/\//', '', $candidate) ?? $candidate;
+        $candidate = preg_replace('/^www\./', '', $candidate) ?? $candidate;
+
+        $parts = explode('/', $candidate);
+
+        return rtrim($parts[0], '.');
     }
 }
