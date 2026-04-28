@@ -26,69 +26,48 @@ _DEFAULT_CRAWLS = ["CC-MAIN-2025-13"]
 _DEFAULT_MINIMUM_IMPORT_SCORE = 0.05
 _DEFAULT_FETCH_CHUNK_SIZE = int(os.getenv("COMMON_CRAWL_FETCH_CHUNK_SIZE", "10000"))
 
-COUNTRY_SIGNALS: dict[str, dict[str, list[str]]] = {
+COUNTRY_RULES: dict[str, dict[str, set[str]]] = {
     "de": {
-        "tlds": ["de"],
-        "url_patterns": [
-            "/de/", "/de-de/", "/de_de/",
-            "/deutschland",
-            "/produkte", "/produkt",
-            "/warenkorb", "/kategorie",
-        ],
+        "strong_tlds": {"de", "berlin", "hamburg", "bayern", "koeln", "nrw", "saarland"},
+        "strong_url_patterns": {"/de-de/", "/de_de/", "/deutschland", "/germany"},
+        "strong_domain_tokens": {"deutschland", "germany"},
+        "language_url_patterns": {"/de/", "lang=de", "locale=de", "/produkte", "/produkt", "/warenkorb", "/kategorie"},
     },
     "nl": {
-        "tlds": ["nl"],
-        "url_patterns": [
-            "/nl/", "/nl-nl/",
-            "/nederland",
-            "/producten", "/product",
-            "/winkelwagen", "/categorie",
-        ],
+        "strong_tlds": {"nl"},
+        "strong_url_patterns": {"/nl-nl/", "/nl_nl/", "/nederland", "/netherlands"},
+        "strong_domain_tokens": {"nederland", "netherlands"},
+        "language_url_patterns": {"/nl/", "lang=nl", "locale=nl", "/producten", "/winkelwagen", "/categorie"},
     },
     "fr": {
-        "tlds": ["fr"],
-        "url_patterns": [
-            "/fr/", "/fr-fr/",
-            "/france",
-            "/produits", "/produit",
-            "/panier", "/categorie",
-        ],
+        "strong_tlds": {"fr"},
+        "strong_url_patterns": {"/fr-fr/", "/fr_fr/", "/france"},
+        "strong_domain_tokens": {"france"},
+        "language_url_patterns": {"/fr/", "lang=fr", "locale=fr", "/produits", "/panier", "/categorie"},
     },
     "it": {
-        "tlds": ["it"],
-        "url_patterns": [
-            "/it/", "/it-it/",
-            "/italia",
-            "/prodotti", "/prodotto",
-            "/carrello", "/categoria",
-        ],
+        "strong_tlds": {"it"},
+        "strong_url_patterns": {"/it-it/", "/it_it/", "/italia", "/italy"},
+        "strong_domain_tokens": {"italia", "italy"},
+        "language_url_patterns": {"/it/", "lang=it", "locale=it", "/prodotti", "/carrello", "/categoria"},
     },
     "es": {
-        "tlds": ["es"],
-        "url_patterns": [
-            "/es/", "/es-es/",
-            "/espana", "/españa",
-            "/productos", "/producto",
-            "/carrito", "/categoria",
-        ],
+        "strong_tlds": {"es"},
+        "strong_url_patterns": {"/es-es/", "/es_es/", "/espana", "/españa", "/spain"},
+        "strong_domain_tokens": {"espana", "españa", "spain"},
+        "language_url_patterns": {"/es/", "lang=es", "locale=es", "/productos", "/carrito", "/categoria"},
     },
     "ch": {
-        "tlds": ["ch"],
-        "url_patterns": [
-            "/ch/", "/de-ch/", "/fr-ch/", "/it-ch/",
-            "/schweiz", "/suisse", "/svizzera",
-            "/produkte", "/produits", "/prodotti",
-            "/warenkorb", "/panier", "/carrello",
-        ],
+        "strong_tlds": {"ch", "swiss"},
+        "strong_url_patterns": {"/de-ch/", "/fr-ch/", "/it-ch/", "/ch/", "/schweiz", "/suisse", "/svizzera", "/switzerland"},
+        "strong_domain_tokens": {"schweiz", "suisse", "svizzera", "swiss", "switzerland"},
+        "language_url_patterns": {"/de/", "/fr/", "/it/", "/produkte", "/produits", "/prodotti", "/warenkorb", "/panier", "/carrello"},
     },
     "us": {
-        "tlds": ["us"],
-        "url_patterns": [
-            "/us/", "/en-us/", "/en_us/",
-            "/usa", "/united-states",
-            "/products", "/product",
-            "/cart", "/checkout", "/category",
-        ],
+        "strong_tlds": {"us"},
+        "strong_url_patterns": {"/en-us/", "/en_us/", "/us/", "/usa", "/united-states", "/united_states"},
+        "strong_domain_tokens": {"usa", "unitedstates", "united-states"},
+        "language_url_patterns": {"/en/", "lang=en", "locale=en", "/products", "/cart", "/checkout", "/category"},
     },
 }
 
@@ -98,6 +77,7 @@ class FileProcessingStats:
     rows_read_before_filters: int = 0
     rows_skipped_invalid_domain: int = 0
     rows_skipped_country_filter: int = 0
+    rows_rejected_language_only: int = 0
     rows_accepted_after_country_filter: int = 0
     domains_extracted: int = 0
     domains_upserted: int = 0
@@ -123,27 +103,37 @@ class CommonCrawlImporter:
     def __init__(self, config: CommonCrawlImporterConfig | None = None) -> None:
         self.config = config or CommonCrawlImporterConfig()
         self._normalizer = DomainNormalizer()
+        self._has_language_signals_column: bool | None = None
 
     @staticmethod
-    def detect_country_signals(url: str, domain: str, country: str) -> tuple[bool, list[str]]:
+    def detect_country_signals(url: str, domain: str, country: str) -> tuple[bool, list[str], list[str]]:
         url_l = (url or "").lower()
         domain_l = (domain or "").lower()
 
-        config = COUNTRY_SIGNALS.get(country)
+        config = COUNTRY_RULES.get(country)
         if not config:
-            return False, []
+            return False, [], []
 
         tld = domain_l.rsplit(".", 1)[-1] if "." in domain_l else ""
+        country_signals: list[str] = []
+        language_signals: list[str] = []
 
-        signals: list[str] = []
-        if tld in config["tlds"]:
-            signals.append(f"tld:{country}")
+        if tld in config["strong_tlds"]:
+            country_signals.append(f"tld:{tld}")
 
-        for pattern in config["url_patterns"]:
+        for pattern in config["strong_url_patterns"]:
             if pattern in url_l:
-                signals.append(f"url:{pattern}")
+                country_signals.append(f"url:{pattern}")
 
-        return bool(signals), signals
+        for token in config["strong_domain_tokens"]:
+            if token in domain_l:
+                country_signals.append(f"domain:{token}")
+
+        for pattern in config["language_url_patterns"]:
+            if pattern in url_l:
+                language_signals.append(f"url:{pattern}")
+
+        return bool(country_signals), sorted(set(country_signals)), sorted(set(language_signals))
 
     @staticmethod
     def pattern_match_score(url: str) -> tuple[float, list[str]]:
@@ -234,8 +224,11 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
                 chunk_number += 1
                 chunk_invalid_domain = 0
                 chunk_skipped_country = 0
+                chunk_rejected_language_only = 0
                 chunk_accepted_country = 0
                 chunk_aggregated: dict[str, dict] = {}
+                accepted_samples: list[dict[str, object]] = []
+                rejected_language_only_samples: list[dict[str, object]] = []
                 stats.rows_read_before_filters += len(rows)
 
                 for row in rows:
@@ -249,11 +242,30 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
                         chunk_invalid_domain += 1
                         continue
 
-                    matched_country, country_signals = self.detect_country_signals(url=url, domain=domain, country=country)
+                    matched_country, country_signals, language_signals = self.detect_country_signals(
+                        url=url,
+                        domain=domain,
+                        country=country,
+                    )
                     if not matched_country:
                         chunk_skipped_country += 1
+                        if language_signals:
+                            chunk_rejected_language_only += 1
+                            if len(rejected_language_only_samples) < 5:
+                                rejected_language_only_samples.append(
+                                    {"domain": domain, "url": url, "language_signals": language_signals}
+                                )
                         continue
                     chunk_accepted_country += 1
+                    if len(accepted_samples) < 5:
+                        accepted_samples.append(
+                            {
+                                "domain": domain,
+                                "url": url,
+                                "country_signals": country_signals,
+                                "language_signals": language_signals,
+                            }
+                        )
 
                     score, matched_patterns = self.pattern_match_score(url)
                     if score <= 0:
@@ -267,6 +279,7 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
                             "tld": domain_tld,
                             "country": country,
                             "country_signals": set(country_signals),
+                            "language_signals": set(language_signals),
                             "ecommerce_score": score,
                             "matched_patterns": set(matched_patterns),
                             "source_url": url,
@@ -277,6 +290,7 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
 
                     entry["ecommerce_score"] = min(1.0, float(entry["ecommerce_score"]) + float(score))
                     entry["country_signals"].update(country_signals)
+                    entry["language_signals"].update(language_signals)
                     entry["matched_patterns"].update(matched_patterns)
                     if not entry.get("source_url") and url:
                         entry["source_url"] = url
@@ -288,35 +302,61 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
 
                 logger.info(
                     "Chunk processed: file=%s chunk_number=%d rows_read=%d rows_skipped_invalid_domain=%d "
-                    "rows_skipped_country_signal=%d rows_accepted_after_country_signal=%d domains_extracted=%d domains_upserted=%d",
+                    "rows_skipped_country_signal=%d rows_rejected_language_only=%d rows_accepted_after_country_signal=%d "
+                    "domains_extracted=%d domains_upserted=%d",
                     local_path,
                     chunk_number,
                     len(rows),
                     chunk_invalid_domain,
                     chunk_skipped_country,
+                    chunk_rejected_language_only,
                     chunk_accepted_country,
                     domains_extracted,
                     domains_upserted,
                 )
+                if rejected_language_only_samples:
+                    logger.info(
+                        "Chunk language-only rejected samples: file=%s chunk_number=%d samples=%s",
+                        local_path,
+                        chunk_number,
+                        rejected_language_only_samples,
+                    )
+                if accepted_samples:
+                    logger.info(
+                        "Chunk accepted country-signal samples: file=%s chunk_number=%d samples=%s",
+                        local_path,
+                        chunk_number,
+                        accepted_samples,
+                    )
 
                 stats.rows_skipped_invalid_domain += chunk_invalid_domain
                 stats.rows_skipped_country_filter += chunk_skipped_country
+                stats.rows_rejected_language_only += chunk_rejected_language_only
                 stats.rows_accepted_after_country_filter += chunk_accepted_country
                 stats.domains_extracted += domains_extracted
                 stats.domains_upserted += domains_upserted
 
         logger.info(
             "Parquet file completed: file=%s total_rows_read=%d total_invalid_domains=%d total_skipped_by_country=%d "
-            "total_accepted_by_country=%d total_domains_upserted=%d duration_seconds=%.3f",
+            "total_rejected_language_only=%d total_accepted_by_country=%d total_domains_upserted=%d duration_seconds=%.3f",
             local_path,
             stats.rows_read_before_filters,
             stats.rows_skipped_invalid_domain,
             stats.rows_skipped_country_filter,
+            stats.rows_rejected_language_only,
             stats.rows_accepted_after_country_filter,
             stats.domains_upserted,
             time.perf_counter() - file_started,
         )
         return stats
+
+    def _check_language_signals_column(self, conn) -> bool:
+        if self._has_language_signals_column is not None:
+            return self._has_language_signals_column
+        with conn.cursor() as cursor:
+            cursor.execute("SHOW COLUMNS FROM common_crawl_domains LIKE 'language_signals'")
+            self._has_language_signals_column = cursor.fetchone() is not None
+        return self._has_language_signals_column
 
     def _mysql_connection(self):
         try:
@@ -364,6 +404,7 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
         upserted = 0
 
         with self._mysql_connection() as conn:
+            has_language_signals_column = self._check_language_signals_column(conn)
             for offset in range(0, len(all_domains), batch_size):
                 batch_domains = all_domains[offset: offset + batch_size]
                 existing = self._fetch_existing_patterns(conn, batch_domains)
@@ -373,19 +414,35 @@ WHERE fetch_status IN ({", ".join(str(s) for s in _VALID_FETCH_STATUSES)})
                     item = domains_map[domain]
                     merged_patterns = set(item["matched_patterns"]) | existing.get(domain, set())
                     patterns_json = json.dumps(sorted(merged_patterns))
-                    values.append(
-                        (
-                            item["domain"],
-                            item["tld"],
-                            item.get("country"),
-                            float(item["ecommerce_score"]),
-                            patterns_json,
-                            json.dumps(sorted(item.get("country_signals", set()))),
-                            item.get("source_url"),
-                            item.get("crawl_id"),
-                            item["last_seen_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                    if has_language_signals_column:
+                        values.append(
+                            (
+                                item["domain"],
+                                item["tld"],
+                                item.get("country"),
+                                float(item["ecommerce_score"]),
+                                patterns_json,
+                                json.dumps(sorted(item.get("country_signals", set()))),
+                                json.dumps(sorted(item.get("language_signals", set()))),
+                                item.get("source_url"),
+                                item.get("crawl_id"),
+                                item["last_seen_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                            )
                         )
-                    )
+                    else:
+                        values.append(
+                            (
+                                item["domain"],
+                                item["tld"],
+                                item.get("country"),
+                                float(item["ecommerce_score"]),
+                                patterns_json,
+                                json.dumps(sorted(item.get("country_signals", set()))),
+                                item.get("source_url"),
+                                item.get("crawl_id"),
+                                item["last_seen_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                            )
+                        )
 
                 sql = """
 INSERT INTO common_crawl_domains
@@ -398,6 +455,24 @@ ON DUPLICATE KEY UPDATE
     ecommerce_score = GREATEST(ecommerce_score, VALUES(ecommerce_score)),
     matched_patterns = VALUES(matched_patterns),
     country_signals = VALUES(country_signals),
+    source_url = COALESCE(source_url, VALUES(source_url)),
+    crawl_id = VALUES(crawl_id),
+    last_seen_at = VALUES(last_seen_at),
+    updated_at = NOW()
+""".strip()
+                if has_language_signals_column:
+                    sql = """
+INSERT INTO common_crawl_domains
+    (domain, tld, country, ecommerce_score, matched_patterns, country_signals, language_signals, source_url, crawl_id, last_seen_at, created_at, updated_at)
+VALUES
+    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+    tld = VALUES(tld),
+    country = VALUES(country),
+    ecommerce_score = GREATEST(ecommerce_score, VALUES(ecommerce_score)),
+    matched_patterns = VALUES(matched_patterns),
+    country_signals = VALUES(country_signals),
+    language_signals = VALUES(language_signals),
     source_url = COALESCE(source_url, VALUES(source_url)),
     crawl_id = VALUES(crawl_id),
     last_seen_at = VALUES(last_seen_at),
@@ -420,7 +495,7 @@ ON DUPLICATE KEY UPDATE
         if len(countries) != 1:
             raise ValueError("Exactly one country must be provided for common_crawl_import jobs")
         country = countries[0]
-        if country not in COUNTRY_SIGNALS:
+        if country not in COUNTRY_RULES:
             raise ValueError(f"Unsupported country: {country}")
         batch_size = max(1, int(payload.get("batch_size", 1000)))
         fetch_chunk_size = max(1, int(payload.get("fetch_chunk_size", self.config.fetch_chunk_size)))
@@ -451,6 +526,7 @@ ON DUPLICATE KEY UPDATE
         rows_read_before_filters = 0
         rows_skipped_invalid_domain = 0
         rows_skipped_country_filter = 0
+        rows_rejected_language_only = 0
         rows_accepted_after_country_filter = 0
         listed_keys: list[str] = []
         downloaded_keys: list[str] = []
@@ -479,6 +555,7 @@ ON DUPLICATE KEY UPDATE
                     rows_read_before_filters += file_stats.rows_read_before_filters
                     rows_skipped_invalid_domain += file_stats.rows_skipped_invalid_domain
                     rows_skipped_country_filter += file_stats.rows_skipped_country_filter
+                    rows_rejected_language_only += file_stats.rows_rejected_language_only
                     rows_accepted_after_country_filter += file_stats.rows_accepted_after_country_filter
                     file_domains = file_stats.domains_extracted
                     total_domains_extracted += file_domains
@@ -517,6 +594,7 @@ ON DUPLICATE KEY UPDATE
             "rows_read_before_filters": rows_read_before_filters,
             "rows_skipped_invalid_domain": rows_skipped_invalid_domain,
             "rows_skipped_country_filter": rows_skipped_country_filter,
+            "rows_rejected_language_only": rows_rejected_language_only,
             "rows_accepted_after_country_filter": rows_accepted_after_country_filter,
             "minimum_import_score": minimum_import_score,
             "fetch_chunk_size": fetch_chunk_size,
