@@ -5,111 +5,98 @@ declare(strict_types=1);
 namespace Tests\Feature\Console;
 
 use App\Enums\DomainStatus;
-use App\Jobs\ProcessPendingDomainEnrichmentJob;
+use App\Models\CrawlJob;
 use App\Models\Domain;
-use App\Services\Domain\DomainEnrichmentPipeline;
-use Illuminate\Support\Facades\Bus;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
 
 class ProcessPendingDomainsCommandTest extends TestCase
 {
-    public function test_it_marks_domains_as_processing_and_dispatches_jobs(): void
-    {
-        Bus::fake();
+    use RefreshDatabase;
 
+    public function test_pending_domain_creates_crawl_jobs(): void
+    {
         $domain = Domain::factory()->create([
             'normalized_domain' => 'alpha.example',
             'domain' => 'alpha.example',
+            'country' => 'DE',
             'status' => DomainStatus::Pending,
         ]);
 
-        Artisan::call('domains:process-pending', ['--limit' => 10, '--chunk' => 5]);
+        Artisan::call('domains:create-crawl-jobs', ['--country' => 'de', '--limit' => 10, '--chunk' => 5]);
 
-        $domain->refresh();
-        $this->assertSame(DomainStatus::Crawling, $domain->status);
-
-        Bus::assertDispatched(ProcessPendingDomainEnrichmentJob::class, function ($job) {
-            return $job->domain === 'alpha.example';
-        });
+        $this->assertSame(5, CrawlJob::query()->where('domain_id', $domain->id)->count());
+        $this->assertDatabaseHas('crawl_jobs', [
+            'domain_id' => $domain->id,
+            'status' => 'pending',
+        ]);
     }
 
-    public function test_it_applies_country_filter(): void
+    public function test_country_filter_works(): void
     {
-        Bus::fake();
-
         $deDomain = Domain::factory()->create(['normalized_domain' => 'de.example', 'domain' => 'de.example', 'country' => 'DE', 'status' => DomainStatus::Pending]);
         $usDomain = Domain::factory()->create(['normalized_domain' => 'us.example', 'domain' => 'us.example', 'country' => 'US', 'status' => DomainStatus::Pending]);
 
-        Artisan::call('domains:process-pending', ['--country' => 'de']);
+        Artisan::call('domains:create-crawl-jobs', ['--country' => 'de']);
 
-        $deDomain->refresh();
-        $usDomain->refresh();
-
-        $this->assertSame(DomainStatus::Crawling, $deDomain->status);
-        $this->assertSame(DomainStatus::Pending, $usDomain->status);
+        $this->assertSame(5, CrawlJob::query()->where('domain_id', $deDomain->id)->count());
+        $this->assertSame(0, CrawlJob::query()->where('domain_id', $usDomain->id)->count());
     }
 
-    public function test_dry_run_does_not_dispatch_or_change_status(): void
+    public function test_dry_run_does_not_insert(): void
     {
-        Bus::fake();
-
         $domain = Domain::factory()->create([
             'normalized_domain' => 'dry.example',
             'domain' => 'dry.example',
+            'country' => 'DE',
             'status' => DomainStatus::Pending,
         ]);
 
-        Artisan::call('domains:process-pending', ['--dry-run' => true]);
+        Artisan::call('domains:create-crawl-jobs', ['--dry-run' => true, '--country' => 'de']);
 
-        $domain->refresh();
-        $this->assertSame(DomainStatus::Pending, $domain->status);
-        Bus::assertNotDispatched(ProcessPendingDomainEnrichmentJob::class);
+        $this->assertSame(0, CrawlJob::query()->where('domain_id', $domain->id)->count());
     }
 
-    public function test_enrichment_job_marks_processed_on_success(): void
+    public function test_duplicate_crawl_jobs_are_not_created(): void
     {
         $domain = Domain::factory()->create([
-            'normalized_domain' => 'processed.example',
-            'domain' => 'processed.example',
-            'status' => DomainStatus::Crawling,
+            'normalized_domain' => 'dup.example',
+            'domain' => 'dup.example',
+            'country' => 'DE',
+            'status' => DomainStatus::Pending,
         ]);
 
-        $job = new ProcessPendingDomainEnrichmentJob('processed.example');
-        $job->handle(app(DomainEnrichmentPipeline::class));
+        CrawlJob::query()->create([
+            'domain_id' => $domain->id,
+            'status' => 'completed',
+            'trigger_type' => 'discovery',
+            'crawl_payload' => [
+                'job_type' => 'crawl_homepage',
+                'domain' => 'dup.example',
+                'country' => 'DE',
+                'source' => 'common_crawl',
+            ],
+        ]);
 
-        $domain->refresh();
-        $this->assertSame(DomainStatus::Processed, $domain->status);
-        $this->assertDatabaseHas('domain_metrics', ['domain_id' => $domain->id]);
+        Artisan::call('domains:create-crawl-jobs', ['--country' => 'de']);
+
+        $this->assertSame(5, CrawlJob::query()->where('domain_id', $domain->id)->count());
+        $this->assertSame(1, CrawlJob::query()->where('domain_id', $domain->id)->where('crawl_payload->job_type', 'crawl_homepage')->count());
     }
 
-    public function test_enrichment_job_marks_failed_and_stores_error(): void
+    public function test_domain_status_becomes_queued_after_jobs_are_created(): void
     {
         $domain = Domain::factory()->create([
-            'normalized_domain' => 'failed.example',
-            'domain' => 'failed.example',
-            'status' => DomainStatus::Crawling,
-            'metadata' => [],
+            'normalized_domain' => 'queue.example',
+            'domain' => 'queue.example',
+            'country' => 'DE',
+            'status' => DomainStatus::Pending,
         ]);
 
-        $failingPipeline = new class extends DomainEnrichmentPipeline {
-            public function run(Domain $domain): void
-            {
-                throw new \RuntimeException('pipeline exploded');
-            }
-        };
-
-        $job = new ProcessPendingDomainEnrichmentJob('failed.example');
-
-        try {
-            $job->handle($failingPipeline);
-            $this->fail('Expected RuntimeException was not thrown.');
-        } catch (\RuntimeException $exception) {
-            $this->assertSame('pipeline exploded', $exception->getMessage());
-        }
+        Artisan::call('domains:create-crawl-jobs', ['--country' => 'de']);
 
         $domain->refresh();
-        $this->assertSame(DomainStatus::Failed, $domain->status);
-        $this->assertSame('pipeline exploded', $domain->metadata['processing_error'] ?? null);
+        $this->assertSame(DomainStatus::Queued, $domain->status);
     }
 }
