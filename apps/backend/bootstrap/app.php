@@ -13,6 +13,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ])
     ->withCommands([
         App\Console\Commands\PromoteCommonCrawlDomainsCommand::class,
+        App\Console\Commands\ProcessPendingDomainsCommand::class,
     ])
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
