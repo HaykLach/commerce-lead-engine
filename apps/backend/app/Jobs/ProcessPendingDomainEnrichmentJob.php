@@ -7,12 +7,19 @@ namespace App\Jobs;
 use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Services\Domain\DomainEnrichmentPipeline;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Throwable;
 
 class ProcessPendingDomainEnrichmentJob extends ProcessDomainCrawlJob
 {
-    public function handle(DomainEnrichmentPipeline $pipeline): void
+    /**
+     * @throws BindingResolutionException
+     */
+    public function handle(): void
     {
+        /** @var DomainEnrichmentPipeline $pipeline */
+        $pipeline = app()->make(DomainEnrichmentPipeline::class);
+
         $domain = Domain::query()->where('normalized_domain', $this->domain)->first();
 
         if ($domain === null) {
