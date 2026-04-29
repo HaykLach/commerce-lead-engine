@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests\Api\Internal;
 
 use App\Enums\CrawlJobStatus;
+use App\Enums\CrawlJobType;
 use App\Enums\CrawlTriggerType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Enum;
@@ -32,7 +33,7 @@ class StoreCrawlJobRequest extends FormRequest
             'next_crawl_at' => ['nullable', 'date'],
             'failure_reason' => ['nullable', 'string', 'max:255'],
             'crawl_payload' => ['nullable', 'array'],
-            'crawl_payload.job_type' => ['required_with:crawl_payload', 'string', 'max:100'],
+            'crawl_payload.job_type' => ['required_with:crawl_payload', 'string', 'in:'.implode(',', CrawlJobType::values())],
             'crawl_payload.*' => ['nullable'],
             'crawl_summary' => ['nullable', 'array'],
         ];
