@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Enums\CrawlJobType;
 use App\Enums\DomainStatus;
 use App\Models\CrawlJob;
 use App\Models\Domain;
@@ -12,12 +13,9 @@ use Illuminate\Support\Facades\DB;
 
 class CreateCrawlJobsCommand extends Command
 {
-    private const JOB_TYPES = [
-        'crawl_homepage',
-        'detect_platform',
-        'collect_metrics',
-        'guess_niche',
-        'calculate_confidence',
+    private const INITIAL_JOB_TYPES = [
+        CrawlJobType::HomepageFetch,
+        CrawlJobType::DomainDiscoverySearchSeed,
     ];
 
     protected $signature = 'domains:create-crawl-jobs {--country=de} {--limit=500} {--chunk=100} {--dry-run}';
@@ -26,7 +24,7 @@ class CreateCrawlJobsCommand extends Command
 
     public function handle(): int
     {
-        $country = (string) $this->option('country');
+        $country = trim((string) $this->option('country'));
         $limit = max(1, (int) $this->option('limit'));
         $chunkSize = max(1, (int) $this->option('chunk'));
         $dryRun = (bool) $this->option('dry-run');
@@ -37,31 +35,31 @@ class CreateCrawlJobsCommand extends Command
             ->orderBy('id');
 
         $totalFound = (clone $query)->count();
-        $this->info("domains found={$totalFound} limit={$limit} chunk={$chunkSize} dry_run=".($dryRun ? 'yes' : 'no'));
+        $this->info("total domains found={$totalFound} limit={$limit} chunk={$chunkSize} dry_run=".($dryRun ? 'yes' : 'no'));
 
         $stats = [
+            'domains_processed' => 0,
             'jobs_inserted' => 0,
             'duplicates_skipped' => 0,
             'domains_queued' => 0,
-            'domains_considered' => 0,
         ];
 
         $query->chunkById($chunkSize, function ($domains) use (&$stats, $limit, $dryRun): bool {
             foreach ($domains as $domain) {
-                if ($stats['domains_considered'] >= $limit) {
+                if ($stats['domains_processed'] >= $limit) {
                     return false;
                 }
 
-                $stats['domains_considered']++;
+                $stats['domains_processed']++;
 
                 $insertedForDomain = 0;
                 $duplicatesForDomain = 0;
 
-                foreach (self::JOB_TYPES as $jobType) {
+                foreach (self::INITIAL_JOB_TYPES as $jobType) {
                     $alreadyExists = CrawlJob::query()
                         ->where('domain_id', $domain->id)
+                        ->where('crawl_payload->job_type', $jobType->value)
                         ->whereIn('status', ['pending', 'processing', 'completed'])
-                        ->where('crawl_payload->job_type', $jobType)
                         ->exists();
 
                     if ($alreadyExists) {
@@ -80,12 +78,17 @@ class CreateCrawlJobsCommand extends Command
                         'status' => 'pending',
                         'trigger_type' => 'discovery',
                         'crawl_payload' => [
-                            'job_type' => $jobType,
+                            'job_type' => $jobType->value,
                             'domain' => $domain->normalized_domain,
                             'country' => $domain->country,
                             'source' => 'common_crawl',
+                            'metadata' => [
+                                'producer' => 'laravel',
+                                'pipeline' => 'initial',
+                            ],
                         ],
                     ]);
+
                     $insertedForDomain++;
                     $stats['jobs_inserted']++;
                 }
@@ -108,9 +111,10 @@ class CreateCrawlJobsCommand extends Command
             return true;
         });
 
-        $this->info("jobs inserted={$stats['jobs_inserted']}");
-        $this->info("duplicate jobs skipped={$stats['duplicates_skipped']}");
-        $this->info("domains marked queued={$stats['domains_queued']}");
+        $this->info("total domains processed={$stats['domains_processed']}");
+        $this->info("total jobs inserted={$stats['jobs_inserted']}");
+        $this->info("duplicates skipped={$stats['duplicates_skipped']}");
+        $this->info("domains updated to queued={$stats['domains_queued']}");
 
         return self::SUCCESS;
     }
