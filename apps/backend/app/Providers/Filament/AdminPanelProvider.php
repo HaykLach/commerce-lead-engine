@@ -54,6 +54,12 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+            ])
+            ->extraBodyHtml(<<<'HTML'
+                <style>
+                    .fi-tr.domain-visited > td { background-color: rgb(254 243 199) !important; }
+                    .dark .fi-tr.domain-visited > td { background-color: rgb(120 83 6 / 0.25) !important; }
+                </style>
+            HTML);
     }
 }

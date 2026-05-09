@@ -10,7 +10,6 @@ use App\Enums\DomainStatus;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Tables\Actions\Action;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\ActionsPosition;
 use Filament\Tables\Filters\Filter;
@@ -24,12 +23,6 @@ class DomainsTable
     {
         return $table
             ->columns([
-                IconColumn::make('visited_at')
-                    ->label('')
-                    ->icon(fn ($state): string => $state ? 'heroicon-s-eye' : 'heroicon-o-eye-slash')
-                    ->color(fn ($state): string => $state ? 'success' : 'gray')
-                    ->tooltip(fn ($state): string => $state ? 'Visited' : 'Not visited')
-                    ->size(IconColumn\IconColumnSize::Small),
                 TextColumn::make('domain')
                     ->label('Domain')
                     ->searchable(['domain', 'normalized_domain'])
@@ -113,10 +106,12 @@ class DomainsTable
                     ->tooltip('Copy domain')
                     ->color('gray')
                     ->extraAttributes(fn (Domain $record): array => [
-                        // Use mousedown (fires before click) to avoid conflicting with Filament's
-                        // own x-on:click handler. Also provides a fallback for non-HTTPS contexts
-                        // where navigator.clipboard is unavailable.
-                        'x-on:mousedown.left' => self::clipboardJs($record->domain),
+                        // Domain is stored in data-domain (safely HTML-escaped by Blade)
+                        // and read via $el.dataset.domain — avoids any JS/HTML quoting issues.
+                        // mousedown fires before Filament's click handler so clipboard write
+                        // happens within the user-gesture context (required by the Clipboard API).
+                        'data-domain' => $record->domain,
+                        'x-on:mousedown.left' => self::clipboardJs(),
                     ])
                     ->action(function (Domain $record): void {
                         $record->markAsVisited();
@@ -129,7 +124,7 @@ class DomainsTable
                     }),
             ])
             ->actionsPosition(ActionsPosition::BeforeCells)
-            ->recordClasses(fn (Domain $record): ?string => filled($record->visited_at) ? 'bg-yellow-100 dark:bg-yellow-900/30' : null)
+            ->recordClasses(fn (Domain $record): ?string => filled($record->visited_at) ? 'domain-visited' : null)
             ->recordUrl(fn (Domain $record): string => DomainResource::getUrl('view', ['record' => $record]))
             ->toolbarActions([])
             ->defaultSort('last_seen_at', 'desc');
@@ -145,12 +140,10 @@ class DomainsTable
             ->toArray();
     }
 
-    private static function clipboardJs(string $domain): string
+    private static function clipboardJs(): string
     {
-        $json = json_encode($domain);
-
-        // Self-contained IIFE: tries modern Clipboard API (requires secure context),
-        // falls back to the legacy execCommand approach for HTTP environments.
+        // Domain is read from the button's data-domain attribute ($el.dataset.domain)
+        // so no PHP value needs to be embedded in the JS — no quoting issues possible.
         return "(function(d){"
             .     "function fb(t){"
             .         "var a=document.createElement('textarea');"
@@ -166,6 +159,6 @@ class DomainsTable
             .     "}else{"
             .         "fb(d)"
             .     "}"
-            . "})({$json})";
+            . '})($el.dataset.domain)';
     }
 }
