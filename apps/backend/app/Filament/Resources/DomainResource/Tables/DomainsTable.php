@@ -113,7 +113,10 @@ class DomainsTable
                     ->tooltip('Copy domain')
                     ->color('gray')
                     ->extraAttributes(fn (Domain $record): array => [
-                        'x-on:click' => "navigator.clipboard.writeText('{$record->domain}')",
+                        // Use mousedown (fires before click) to avoid conflicting with Filament's
+                        // own x-on:click handler. Also provides a fallback for non-HTTPS contexts
+                        // where navigator.clipboard is unavailable.
+                        'x-on:mousedown.left' => self::clipboardJs($record->domain),
                     ])
                     ->action(function (Domain $record): void {
                         $record->markAsVisited();
@@ -126,6 +129,7 @@ class DomainsTable
                     }),
             ])
             ->actionsPosition(ActionsPosition::BeforeCells)
+            ->recordClasses(fn (Domain $record): ?string => filled($record->visited_at) ? 'bg-yellow-100 dark:bg-yellow-900/30' : null)
             ->recordUrl(fn (Domain $record): string => DomainResource::getUrl('view', ['record' => $record]))
             ->toolbarActions([])
             ->defaultSort('last_seen_at', 'desc');
@@ -139,5 +143,29 @@ class DomainsTable
             ->orderBy($column)
             ->pluck($column, $column)
             ->toArray();
+    }
+
+    private static function clipboardJs(string $domain): string
+    {
+        $json = json_encode($domain);
+
+        // Self-contained IIFE: tries modern Clipboard API (requires secure context),
+        // falls back to the legacy execCommand approach for HTTP environments.
+        return "(function(d){"
+            .     "function fb(t){"
+            .         "var a=document.createElement('textarea');"
+            .         "a.value=t;"
+            .         "a.style.cssText='position:fixed;left:-9999px;top:-9999px';"
+            .         "document.body.appendChild(a);"
+            .         "a.select();"
+            .         "document.execCommand('copy');"
+            .         "a.remove()"
+            .     "}"
+            .     "if(navigator.clipboard&&window.isSecureContext){"
+            .         "navigator.clipboard.writeText(d).catch(function(){fb(d)})"
+            .     "}else{"
+            .         "fb(d)"
+            .     "}"
+            . "})({$json})";
     }
 }
