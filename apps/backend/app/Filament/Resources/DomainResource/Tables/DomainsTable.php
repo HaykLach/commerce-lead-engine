@@ -7,12 +7,14 @@ namespace App\Filament\Resources\DomainResource\Tables;
 use App\Filament\Resources\DomainResource;
 use App\Models\Domain;
 use App\Enums\DomainStatus;
+use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Tables\Actions\Action;
+use Filament\Support\Enums\IconSize;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\ActionsPosition;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -29,7 +31,7 @@ class DomainsTable
                     ->icon(fn ($state): string => $state ? 'heroicon-s-eye' : 'heroicon-o-eye-slash')
                     ->color(fn ($state): string => $state ? 'success' : 'gray')
                     ->tooltip(fn ($state): string => $state ? 'Visited' : 'Not visited')
-                    ->size(IconColumn\IconColumnSize::Small),
+                    ->size(IconSize::Small),
                 TextColumn::make('domain')
                     ->label('Domain')
                     ->searchable(['domain', 'normalized_domain'])
@@ -125,7 +127,7 @@ class DomainsTable
                             ->send();
                     }),
             ])
-            ->actionsPosition(ActionsPosition::BeforeCells)
+            ->actionsPosition(RecordActionsPosition::BeforeCells)
             ->recordUrl(fn (Domain $record): string => DomainResource::getUrl('view', ['record' => $record]))
             ->toolbarActions([])
             ->defaultSort('last_seen_at', 'desc');

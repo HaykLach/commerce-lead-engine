@@ -31,6 +31,8 @@ class StorePageClassificationRequest extends FormRequest
             'category_page_found' => ['nullable', 'boolean'],
             'cart_page_found' => ['nullable', 'boolean'],
             'checkout_page_found' => ['nullable', 'boolean'],
+            'is_ecommerce' => ['nullable', 'boolean'],
+            'detected_language' => ['nullable', 'string', 'max:10'],
             'sample_product_url' => ['nullable', 'url', 'max:2048'],
             'sample_category_url' => ['nullable', 'url', 'max:2048'],
             'sample_cart_url' => ['nullable', 'url', 'max:2048'],

@@ -7,7 +7,7 @@ namespace App\Filament\Resources\DomainResource\Pages;
 use App\Filament\Resources\DomainResource;
 use App\Models\Domain;
 use Filament\Resources\Pages\ListRecords;
-use Filament\Resources\Pages\ListRecords\Tab;
+use Filament\Schemas\Components\Tabs\Tab;
 
 class ListDomains extends ListRecords
 {

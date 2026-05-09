@@ -11,4 +11,6 @@ enum CrawlJobStatus: string
     case Completed = 'completed';
     case Failed = 'failed';
     case Cancelled = 'cancelled';
+
+    case Pending = 'pending';
 }

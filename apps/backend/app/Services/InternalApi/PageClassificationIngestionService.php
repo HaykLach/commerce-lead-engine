@@ -27,6 +27,8 @@ class PageClassificationIngestionService
             'category_page_found' => (bool) ($payload['category_page_found'] ?? false),
             'cart_page_found' => (bool) ($payload['cart_page_found'] ?? false),
             'checkout_page_found' => (bool) ($payload['checkout_page_found'] ?? false),
+            'is_ecommerce' => isset($payload['is_ecommerce']) ? (bool) $payload['is_ecommerce'] : null,
+            'detected_language' => $payload['detected_language'] ?? null,
             'sample_product_url' => $payload['sample_product_url'] ?? null,
             'sample_category_url' => $payload['sample_category_url'] ?? null,
             'sample_cart_url' => $payload['sample_cart_url'] ?? null,
