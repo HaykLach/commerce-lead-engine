@@ -27,6 +27,7 @@ class Domain extends BaseModel
         'first_seen_at',
         'last_seen_at',
         'last_crawled_at',
+        'visited_at',
         'metadata',
     ];
 
@@ -36,8 +37,16 @@ class Domain extends BaseModel
         'first_seen_at' => 'datetime',
         'last_seen_at' => 'datetime',
         'last_crawled_at' => 'datetime',
+        'visited_at' => 'datetime',
         'metadata' => 'array',
     ];
+
+    public function markAsVisited(): void
+    {
+        if ($this->visited_at === null) {
+            $this->update(['visited_at' => now()]);
+        }
+    }
 
     public function sources(): HasMany
     {

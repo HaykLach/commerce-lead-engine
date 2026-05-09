@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\DomainResource\Pages;
 
 use App\Filament\Resources\DomainResource;
+use App\Models\Domain;
 use App\Services\Crawl\CrawlOrchestratorService;
 use Filament\Actions;
 use Filament\Notifications\Notification;
@@ -13,6 +14,15 @@ use Filament\Resources\Pages\ViewRecord;
 class ViewDomain extends ViewRecord
 {
     protected static string $resource = DomainResource::class;
+
+    public function mount(int|string $record): void
+    {
+        parent::mount($record);
+
+        /** @var Domain $domain */
+        $domain = $this->getRecord();
+        $domain->markAsVisited();
+    }
 
     protected function getHeaderActions(): array
     {
