@@ -59,8 +59,8 @@ class AdminPanelProvider extends PanelProvider
             ->renderHook(
                 PanelsRenderHook::HEAD_END,
                 fn (): string => '<style>
-                    .fi-tr.domain-visited > td { background-color: rgb(254 243 199) !important; }
-                    .dark .fi-tr.domain-visited > td { background-color: rgb(120 83 6 / 0.25) !important; }
+                    .fi-ta-row.domain-visited > td { background-color: rgb(254 243 199) !important; }
+                    .dark .fi-ta-row.domain-visited > td { background-color: rgb(120 83 6 / 0.25) !important; }
                 </style>',
             );
     }

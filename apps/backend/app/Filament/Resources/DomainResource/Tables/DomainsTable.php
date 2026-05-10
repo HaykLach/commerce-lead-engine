@@ -13,6 +13,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\HtmlString;
 
 class DomainsTable
 {
@@ -25,7 +26,7 @@ class DomainsTable
                     ->searchable(['domain', 'normalized_domain'])
                     ->sortable()
                     ->html()
-                    ->formatStateUsing(fn (string $state): string => self::domainCell($state)),
+                    ->formatStateUsing(fn (string $state): HtmlString => self::domainCell($state)),
                 TextColumn::make('metadata.store_name')
                     ->label('Store')
                     ->searchable()
@@ -104,13 +105,11 @@ class DomainsTable
             ->defaultSort('last_seen_at', 'desc');
     }
 
-    private static function domainCell(string $domain): string
+    private static function domainCell(string $domain): HtmlString
     {
-        // data-domain carries the value safely HTML-escaped; JS reads it via
-        // $el.dataset.domain so no domain value is ever embedded in the JS expression.
-        // htmlspecialchars(ENT_COMPAT) on the JS encodes & → &amp; etc. so the
-        // double-quoted HTML attribute stays valid; the browser decodes it before
-        // Alpine evaluates the expression.
+        // Returning HtmlString (Htmlable) bypasses Filament's Str::sanitizeHtml() call
+        // inside TextColumn::formatState(), which would otherwise strip x-data,
+        // x-on:* directives, and non-whitelisted data-* attributes.
         $domainDisplay = e($domain);
         $domainAttr    = htmlspecialchars($domain, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
@@ -132,7 +131,7 @@ class DomainsTable
 
         $jsAttr = htmlspecialchars($js, ENT_COMPAT, 'UTF-8');
 
-        return '<div class="flex items-center gap-2">'
+        return new HtmlString('<div class="flex items-center gap-2">'
             . '<button type="button"'
             .     ' x-data'
             .     ' x-on:click.stop="' . $jsAttr . '"'
@@ -151,7 +150,7 @@ class DomainsTable
             .     '</svg>'
             . '</button>'
             . '<span>' . $domainDisplay . '</span>'
-            . '</div>';
+            . '</div>');
     }
 
     private static function optionsFor(string $column): array
