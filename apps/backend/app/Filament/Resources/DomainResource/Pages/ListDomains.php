@@ -6,6 +6,7 @@ namespace App\Filament\Resources\DomainResource\Pages;
 
 use App\Filament\Resources\DomainResource;
 use App\Models\Domain;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
 
@@ -28,5 +29,16 @@ class ListDomains extends ListRecords
             'visited' => Tab::make('Visited')
                 ->modifyQueryUsing(fn ($query) => $query->whereNotNull('visited_at')),
         ];
+    }
+
+    public function markDomainVisited(string $domain): void
+    {
+        Domain::where('domain', $domain)->first()?->markAsVisited();
+
+        Notification::make()
+            ->title('Copied: ' . $domain)
+            ->success()
+            ->duration(2000)
+            ->send();
     }
 }
