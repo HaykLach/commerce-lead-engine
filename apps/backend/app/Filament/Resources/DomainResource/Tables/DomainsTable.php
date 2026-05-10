@@ -8,11 +8,7 @@ use App\Filament\Resources\DomainResource;
 use App\Models\Domain;
 use App\Enums\DomainStatus;
 use Filament\Forms\Components\TextInput;
-use Filament\Notifications\Notification;
-use Filament\Tables\Actions\Action;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\ActionsPosition;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -24,16 +20,12 @@ class DomainsTable
     {
         return $table
             ->columns([
-                IconColumn::make('visited_at')
-                    ->label('')
-                    ->icon(fn ($state): string => $state ? 'heroicon-s-eye' : 'heroicon-o-eye-slash')
-                    ->color(fn ($state): string => $state ? 'success' : 'gray')
-                    ->tooltip(fn ($state): string => $state ? 'Visited' : 'Not visited')
-                    ->size(IconColumn\IconColumnSize::Small),
                 TextColumn::make('domain')
                     ->label('Domain')
                     ->searchable(['domain', 'normalized_domain'])
-                    ->sortable(),
+                    ->sortable()
+                    ->html()
+                    ->formatStateUsing(fn (string $state): string => self::domainCell($state)),
                 TextColumn::make('metadata.store_name')
                     ->label('Store')
                     ->searchable()
@@ -106,29 +98,60 @@ class DomainsTable
                         });
                     }),
             ])
-            ->recordActions([
-                Action::make('copy_domain')
-                    ->label('')
-                    ->icon('heroicon-o-clipboard-document')
-                    ->tooltip('Copy domain')
-                    ->color('gray')
-                    ->extraAttributes(fn (Domain $record): array => [
-                        'x-on:click' => "navigator.clipboard.writeText('{$record->domain}')",
-                    ])
-                    ->action(function (Domain $record): void {
-                        $record->markAsVisited();
-
-                        Notification::make()
-                            ->title('Copied: ' . $record->domain)
-                            ->success()
-                            ->duration(2000)
-                            ->send();
-                    }),
-            ])
-            ->actionsPosition(ActionsPosition::BeforeCells)
+            ->recordClasses(fn (Domain $record): ?string => filled($record->visited_at) ? 'domain-visited' : null)
             ->recordUrl(fn (Domain $record): string => DomainResource::getUrl('view', ['record' => $record]))
             ->toolbarActions([])
             ->defaultSort('last_seen_at', 'desc');
+    }
+
+    private static function domainCell(string $domain): string
+    {
+        // data-domain carries the value safely HTML-escaped; JS reads it via
+        // $el.dataset.domain so no domain value is ever embedded in the JS expression.
+        // htmlspecialchars(ENT_COMPAT) on the JS encodes & → &amp; etc. so the
+        // double-quoted HTML attribute stays valid; the browser decodes it before
+        // Alpine evaluates the expression.
+        $domainDisplay = e($domain);
+        $domainAttr    = htmlspecialchars($domain, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $js = '(function(d){'
+            .     'function fb(t){'
+            .         'var a=document.createElement(\'textarea\');'
+            .         'a.value=t;'
+            .         'a.style.cssText=\'position:fixed;left:-9999px;top:-9999px\';'
+            .         'document.body.appendChild(a);'
+            .         'a.select();'
+            .         'document.execCommand(\'copy\');'
+            .         'a.remove()'
+            .     '}'
+            .     'if(navigator.clipboard&&window.isSecureContext){'
+            .         'navigator.clipboard.writeText(d).catch(function(){fb(d)})'
+            .     '}else{fb(d)}'
+            . '})($el.dataset.domain);'
+            . '$wire.call(\'markDomainVisited\',$el.dataset.domain)';
+
+        $jsAttr = htmlspecialchars($js, ENT_COMPAT, 'UTF-8');
+
+        return '<div class="flex items-center gap-2">'
+            . '<button type="button"'
+            .     ' x-data'
+            .     ' x-on:click.stop="' . $jsAttr . '"'
+            .     ' data-domain="' . $domainAttr . '"'
+            .     ' class="text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 transition-colors shrink-0"'
+            .     ' title="Copy domain">'
+            .     '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"'
+            .         ' stroke-width="1.5" stroke="currentColor" class="w-4 h-4">'
+            .         '<path stroke-linecap="round" stroke-linejoin="round"'
+            .             ' d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166'
+            .             ' 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75'
+            .             ' 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11'
+            .             ' 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25'
+            .             ' 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057'
+            .             ' 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />'
+            .     '</svg>'
+            . '</button>'
+            . '<span>' . $domainDisplay . '</span>'
+            . '</div>';
     }
 
     private static function optionsFor(string $column): array

@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use Filament\Http\Middleware\Authenticate;
+use Filament\View\PanelsRenderHook;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -54,6 +55,13 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+            ])
+            ->renderHook(
+                PanelsRenderHook::HEAD_END,
+                fn (): string => '<style>
+                    .fi-tr.domain-visited > td { background-color: rgb(254 243 199) !important; }
+                    .dark .fi-tr.domain-visited > td { background-color: rgb(120 83 6 / 0.25) !important; }
+                </style>',
+            );
     }
 }
