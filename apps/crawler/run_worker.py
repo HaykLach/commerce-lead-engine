@@ -1,12 +1,12 @@
 import time
 import json
 import os
-import re
 import logging
 from types import SimpleNamespace
 
 import requests
 
+from lead_crawler.services.ecommerce_verifier import EcommerceVerifier
 from lead_crawler.services.homepage_fetch_service import HomepageFetchService
 from lead_crawler.services.whatweb_runner_service import WhatWebRunnerService
 from lead_crawler.fingerprint.rule_engine import FingerprintRuleEngine
@@ -44,11 +44,6 @@ TLD_COUNTRY_HINTS = {
     "it": "IT",
     "es": "ES",
     "pl": "PL",
-}
-NICHE_KEYWORDS = {
-    "fashion": ["apparel", "clothing", "shoes", "sneakers", "menswear", "womenswear", "accessories", "footwear"],
-    "tech": ["electronics", "gadgets", "devices", "laptop", "phone accessories", "hardware", "smart home"],
-    "b2b": ["wholesale", "distributor", "reseller", "dealer", "trade", "bulk order", "rfq", "request quote", "moq"],
 }
 SUPPORTED_LOCAL_INDEX_COUNTRIES = {"de", "nl", "fr", "it", "es", "ch", "us"}
 
@@ -154,65 +149,6 @@ def infer_country(domain, whatweb_plugins):
     return None, None
 
 
-def infer_niche(html, meta):
-    html_content = html or ""
-    title_match = re.search(r"<title[^>]*>(.*?)</title>", html_content, flags=re.IGNORECASE | re.DOTALL)
-    title = title_match.group(1).strip() if title_match else ""
-    description = meta.get("description", "") if isinstance(meta, dict) else ""
-    body_text = re.sub(r"<[^>]+>", " ", html_content)
-    body_text = re.sub(r"\s+", " ", body_text).strip()[:5000]
-    corpus = f"{title} {description} {body_text}".lower()
-
-    scores = {}
-    for niche, keywords in NICHE_KEYWORDS.items():
-        scores[niche] = sum(corpus.count(keyword.lower()) for keyword in keywords)
-
-    top_niche = max(scores, key=scores.get) if scores else None
-    if not top_niche or scores[top_niche] == 0:
-        return None, scores
-
-    return top_niche, scores
-
-
-def persist_domain_snapshot(summary, fetch_result):
-    fingerprint = summary.get("fingerprint") or {}
-    whatweb = summary.get("whatweb") or {}
-    metadata = {
-        "final_url": summary.get("final_url"),
-        "status_code": summary.get("status_code"),
-        "whatweb_country_hint": _extract_country_hint_from_whatweb(whatweb.get("plugins") or []),
-        "crawl_hints": {
-            "script_count": len(fetch_result.get("scripts") or []),
-            "stylesheet_count": len(fetch_result.get("stylesheets") or []),
-            "link_count": len(fetch_result.get("links") or []),
-        },
-    }
-
-    country, country_hint_meta = infer_country(summary.get("domain"), whatweb.get("plugins") or [])
-    if country_hint_meta:
-        metadata["country_hint"] = country_hint_meta
-
-    niche, niche_scores = infer_niche(fetch_result.get("html"), fetch_result.get("meta"))
-    metadata["niche_scores"] = niche_scores
-
-    payload = {
-        "domain": summary.get("domain"),
-        "normalized_domain": normalize_domain(summary.get("domain")),
-        "platform": fingerprint.get("platform"),
-        "confidence": fingerprint.get("confidence"),
-        "country": country,
-        "niche": niche,
-        "last_crawled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "metadata": metadata,
-    }
-
-    response = _api_request("post", "/domains/upsert", json=payload)
-    if response.status_code not in (200, 201):
-        raise RuntimeError(f"Domain upsert failed with status {response.status_code}")
-
-    body = response.json() if response.text else {}
-    return body.get("data") or {}
-
 
 def persist_fingerprint_record(summary, domain_snapshot):
     fingerprint = normalize_fingerprint_result(summary.get("fingerprint") or {})
@@ -290,6 +226,43 @@ def process_homepage_fetch(job):
     if not isinstance(result, dict):
         raise ValueError(f"Unexpected fetch result type: {type(result)}")
 
+    # Filter out uninteresting sites before running expensive detection.
+    verifier = EcommerceVerifier()
+    verification = verifier.verify(
+        domain=domain,
+        html=result.get("html", ""),
+        links=result.get("links") or [],
+        scripts=result.get("scripts") or [],
+    )
+
+    print(
+        f"[Worker] Site filter: is_acceptable={verification.is_acceptable} "
+        f"reason={verification.reason} signals={verification.signals} "
+        f"disqualifiers={verification.disqualifiers}"
+    )
+
+    if not verification.is_acceptable:
+        # Persist the domain with a disqualification marker and skip fingerprinting.
+        _api_request("post", "/domains/upsert", json={
+            "domain": domain,
+            "normalized_domain": normalize_domain(domain),
+            "last_crawled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "metadata": {
+                "site_acceptable": False,
+                "disqualification_reason": verification.reason,
+                "disqualifiers": verification.disqualifiers,
+                "final_url": result.get("final_url"),
+                "status_code": result.get("status_code"),
+            },
+        })
+        return {
+            "domain": domain,
+            "site_acceptable": False,
+            "disqualification_reason": verification.reason,
+            "disqualifiers": verification.disqualifiers,
+            "skipped_fingerprinting": True,
+        }
+
     whatweb = WhatWebRunnerService()
     whatweb_result = whatweb.scan(domain)
 
@@ -297,8 +270,41 @@ def process_homepage_fetch(job):
     fingerprint_input = build_fingerprint_input(result, whatweb_result)
     fingerprint = normalize_fingerprint_result(engine.detect(fingerprint_input))
 
+    country, country_hint_meta = infer_country(domain, (whatweb_result.plugins or []))
+    metadata = {
+        "site_acceptable": True,
+        "checkout_signals": verification.signals,
+        "final_url": result.get("final_url"),
+        "status_code": result.get("status_code"),
+        "whatweb_country_hint": _extract_country_hint_from_whatweb(whatweb_result.plugins or []),
+        "crawl_hints": {
+            "script_count": len(result.get("scripts") or []),
+            "stylesheet_count": len(result.get("stylesheets") or []),
+            "link_count": len(result.get("links") or []),
+        },
+    }
+    if country_hint_meta:
+        metadata["country_hint"] = country_hint_meta
+
+    domain_payload = {
+        "domain": domain,
+        "normalized_domain": normalize_domain(domain),
+        "platform": fingerprint.get("platform"),
+        "confidence": fingerprint.get("confidence"),
+        "country": country,
+        "last_crawled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "metadata": metadata,
+    }
+
+    response = _api_request("post", "/domains/upsert", json=domain_payload)
+    if response.status_code not in (200, 201):
+        raise RuntimeError(f"Domain upsert failed with status {response.status_code}")
+
+    domain_snapshot = (response.json() if response.text else {}).get("data") or {}
+
     summary = {
         "domain": domain,
+        "site_acceptable": True,
         "final_url": result.get("final_url"),
         "status_code": result.get("status_code"),
         "fingerprint": fingerprint,
@@ -309,14 +315,13 @@ def process_homepage_fetch(job):
         },
     }
 
-    domain_snapshot = persist_domain_snapshot(summary, result)
     persist_fingerprint_record(summary, domain_snapshot)
 
-    if payload.get("enqueue_page_classification", True):
+    if payload.get("enqueue_page_classification", False):
         enqueue_page_classification_job(job, domain_snapshot, domain)
 
     summary["domain_id"] = domain_snapshot.get("id")
-    summary["enqueued_page_classification"] = payload.get("enqueue_page_classification", True)
+    summary["enqueued_page_classification"] = payload.get("enqueue_page_classification", False)
 
     return summary
 
@@ -463,7 +468,7 @@ def ingest_discovered_domain(candidate, payload):
         "priority_homepage_fetch": int(payload.get("priority_homepage_fetch", 3)),
         "priority_page_classification": int(payload.get("priority_page_classification", 5)),
         "enqueue_homepage_fetch": payload.get("enqueue_homepage_fetch", True),
-        "enqueue_page_classification": payload.get("enqueue_page_classification", True),
+        "enqueue_page_classification": payload.get("enqueue_page_classification", False),
     })
 
     if response.status_code not in (200, 201):

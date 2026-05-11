@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\CrawlRequestController;
 use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\Internal\CrawlJobController;
@@ -19,6 +20,10 @@ Route::prefix('v1')->group(function (): void {
 
     Route::prefix('domains')->group(function (): void {
         Route::post('/', [DomainController::class, 'store']);
+    });
+
+    Route::prefix('crawl-requests')->group(function (): void {
+        Route::post('/', [CrawlRequestController::class, 'store']);
     });
 
     Route::prefix('internal')->group(function (): void {
