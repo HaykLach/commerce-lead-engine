@@ -20,7 +20,7 @@ class StoreCrawlJobRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'domain_id' => ['required', 'integer', 'exists:domains,id'],
+            'domain_id' => ['nullable', 'integer', 'exists:domains,id'],
             'recrawl_of_job_id' => ['nullable', 'integer', 'exists:crawl_jobs,id'],
             'status' => ['nullable', 'string', new Enum(CrawlJobStatus::class)],
             'trigger_type' => ['nullable', 'string', new Enum(CrawlTriggerType::class)],

@@ -67,10 +67,12 @@ class CrawlJobController extends Controller
             'crawl_summary' => $request->validated('summary'),
         ]);
 
-        $crawlJob->domain()->update([
-            'last_crawled_at' => now(),
-            'last_seen_at' => now(),
-        ]);
+        if ($crawlJob->domain_id !== null) {
+            $crawlJob->domain()->update([
+                'last_crawled_at' => now(),
+                'last_seen_at' => now(),
+            ]);
+        }
 
         return (new CrawlJobResource($crawlJob->fresh()))->response();
     }
