@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import requests
 
 from lead_crawler.classifiers.page_classifier import PageClassifier
+from lead_crawler.services.contact_extraction_service import ContactExtractionService
 from lead_crawler.services.homepage_fetch_service import HomepageFetchService
 from lead_crawler.services.internal_link_extraction_service import InternalLinkExtractionService
 from lead_crawler.services.sitemap_parser_service import SitemapParserService
@@ -39,6 +40,7 @@ class PageClassificationService:
         self.link_extractor = InternalLinkExtractionService()
         self.classifier = PageClassifier()
         self.sitemap_parser = SitemapParserService()
+        self.contact_extractor = ContactExtractionService()
 
     def classify_domain(self, domain: str, max_pages: int = 12) -> DomainPageClassification:
         homepage = self.fetcher.fetch(domain)
@@ -58,8 +60,11 @@ class PageClassificationService:
         html_documents = [homepage.get("html") or ""]
 
         for url in sampled_urls:
-            html = homepage.get("html") if url == homepage_url else self._fetch_html(url)
-            if html is None:
+            page = (homepage.get("html") or "", homepage_url) if url == homepage_url else self._fetch_page(url)
+            if page is None:
+                continue
+            html, final_url = page
+            if self._normalize_host(urlparse(final_url).netloc) != self._normalize_host(urlparse(homepage_url).netloc):
                 continue
 
             html_documents.append(html)
@@ -67,8 +72,10 @@ class PageClassificationService:
             pages_scanned.append(
                 {
                     "url": url,
+                    "final_url": final_url,
                     "page_types": result.page_types,
                     "matched_reasons": result.matched_reasons,
+                    "contacts": self.contact_extractor.extract(html, final_url),
                 }
             )
 
@@ -153,7 +160,7 @@ class PageClassificationService:
 
         return list(dict.fromkeys(filtered))
 
-    def _fetch_html(self, url: str) -> str | None:
+    def _fetch_page(self, url: str) -> tuple[str, str] | None:
         try:
             response = requests.get(
                 url,
@@ -170,7 +177,7 @@ class PageClassificationService:
             if response.status_code >= 400:
                 return None
 
-            return response.text
+            return response.text, response.url
         except requests.RequestException:
             return None
 
