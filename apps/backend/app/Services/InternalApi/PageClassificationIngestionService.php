@@ -7,14 +7,23 @@ namespace App\Services\InternalApi;
 use App\Enums\PageType;
 use App\Models\Domain;
 use App\Models\PageClassification;
+use App\Services\Contacts\ContactIngestionService;
+use Illuminate\Support\Facades\DB;
 
 class PageClassificationIngestionService
 {
+    public function __construct(private readonly ContactIngestionService $contacts) {}
+
     public function store(array $payload): PageClassification
+    {
+        return DB::transaction(fn (): PageClassification => $this->storeWithContacts($payload), 3);
+    }
+
+    private function storeWithContacts(array $payload): PageClassification
     {
         $resolvedDomainId = $this->resolveDomainId($payload);
 
-        return PageClassification::query()->create([
+        $classification = PageClassification::query()->create([
             'domain_id' => $resolvedDomainId,
             'crawl_job_id' => $payload['crawl_job_id'] ?? null,
             'url' => $payload['url'] ?? $payload['sample_product_url'] ?? $payload['sample_category_url'] ?? $payload['sample_cart_url'] ?? $payload['sample_checkout_url'] ?? sprintf('https://%s', $payload['domain'] ?? ''),
@@ -38,6 +47,10 @@ class PageClassificationIngestionService
             'classification_metadata' => $payload['classification_metadata'] ?? null,
             'classified_at' => $payload['classified_at'] ?? now()->toIso8601String(),
         ]);
+
+        $this->contacts->ingest($classification);
+
+        return $classification;
     }
 
     private function resolveDomainId(array $payload): int

@@ -10,11 +10,15 @@ return new class extends Migration
 {
     public function up(): void
     {
+        $jobType = DB::connection()->getDriverName() === 'sqlite'
+            ? "JSON_EXTRACT(crawl_payload, '$.job_type')"
+            : "JSON_UNQUOTE(JSON_EXTRACT(crawl_payload, '$.job_type'))";
+
         DB::table('crawl_jobs')
             ->where('trigger_type', 'homepage_fetch')
             ->update([
                 'trigger_type' => CrawlTriggerType::Manual->value,
-                'crawl_payload' => DB::raw("JSON_SET(COALESCE(crawl_payload, JSON_OBJECT()), '$.job_type', COALESCE(JSON_UNQUOTE(JSON_EXTRACT(crawl_payload, '$.job_type')), 'homepage_fetch'))"),
+                'crawl_payload' => DB::raw("JSON_SET(COALESCE(crawl_payload, JSON_OBJECT()), '$.job_type', COALESCE({$jobType}, 'homepage_fetch'))"),
                 'updated_at' => now(),
             ]);
     }
@@ -23,7 +27,7 @@ return new class extends Migration
     {
         DB::table('crawl_jobs')
             ->where('trigger_type', CrawlTriggerType::Manual->value)
-            ->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(crawl_payload, '$.job_type')) = 'homepage_fetch'")
+            ->where('crawl_payload->job_type', 'homepage_fetch')
             ->update([
                 'trigger_type' => 'homepage_fetch',
                 'updated_at' => now(),

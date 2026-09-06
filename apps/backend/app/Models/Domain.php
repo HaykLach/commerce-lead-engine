@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\DomainStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -51,6 +52,21 @@ class Domain extends BaseModel
     public function sources(): HasMany
     {
         return $this->hasMany(DomainSource::class);
+    }
+
+    public function contacts(): HasMany
+    {
+        return $this->hasMany(DomainContact::class);
+    }
+
+    public function primaryContact(): BelongsTo
+    {
+        return $this->belongsTo(DomainContact::class, 'primary_contact_id');
+    }
+
+    public function contactsClassification(): BelongsTo
+    {
+        return $this->belongsTo(PageClassification::class, 'contacts_classification_id');
     }
 
     public function crawlJobs(): HasMany
