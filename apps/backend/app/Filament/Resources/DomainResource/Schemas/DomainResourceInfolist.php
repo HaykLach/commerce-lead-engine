@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\DomainResource\Schemas;
 
 use App\Livewire\DomainContacts;
+use App\Livewire\DomainPageSpeed;
 use App\Livewire\DomainWebsiteAudit;
 use App\Models\Domain;
 use Filament\Infolists\Components\IconEntry;
@@ -94,6 +95,12 @@ class DomainResourceInfolist
                 ->schema([
                     Livewire::make(DomainWebsiteAudit::class, fn (Domain $record): array => ['domainId' => $record->id])
                         ->key(fn (Domain $record): string => 'domain-website-audit-'.$record->id),
+                ])
+                ->columnSpanFull(),
+            Section::make('PageSpeed (internal)')
+                ->schema([
+                    Livewire::make(DomainPageSpeed::class, fn (Domain $record): array => ['domainId' => $record->id])
+                        ->key(fn (Domain $record): string => 'domain-pagespeed-'.$record->id),
                 ])
                 ->columnSpanFull(),
             Section::make('Contacts')

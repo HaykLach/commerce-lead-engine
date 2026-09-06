@@ -38,7 +38,7 @@ Known parser limits: no JavaScript execution, no CSS visibility evaluation, no d
 
 ## Milestone 2: durable enrichment and contact records
 
-The Laravel contact-storage and selection portion is implemented: see [Domain contacts](domain-contacts.md) for rollout, PHP rules, and admin behavior. Dedicated PHP audit runs, bounded HTTP collection, retries, freshness, contact ingestion, and admin controls are now implemented; see [Website enrichment](website-enrichment.md) for setup and limitations. Performance measurements remain milestone 3.
+The Laravel contact-storage and selection portion is implemented: see [Domain contacts](domain-contacts.md) for rollout, PHP rules, and admin behavior. Dedicated PHP audit runs, bounded HTTP collection, retries, freshness, contact ingestion, and admin controls are now implemented; see [Website enrichment](website-enrichment.md) for setup and limitations. Performance measurements are implemented separately in milestone 3.
 
 - Add audit-run and contact tables related to `Domain`, with independent audit states and timestamps.
 - Store page evidence and performance-test results separately from discovery confidence.
@@ -50,6 +50,8 @@ The Laravel contact-storage and selection portion is implemented: see [Domain co
 - Limit one active audit per domain, record coverage and expiry, and reuse fresh results.
 
 ## Milestone 3: internal performance measurements
+
+Implemented in PHP/Laravel with a dedicated PageSpeed queue, measurement records, request budgets, retries, expiry, and an internal domain-detail view. See [PageSpeed integration](pagespeed-integration.md) for configuration and rollout. Mobile homepage/category measurements are the default; desktop is optional. The scheduler selects completed audit pages independently, so a failed performance measurement cannot restart HTML collection.
 
 - Collect PageSpeed Insights mobile results for selected pages; add desktop only where useful.
 - Record URL, final URL, device, test time/version, score, metrics, diagnostics, and errors.
