@@ -14,3 +14,6 @@ Schedule::command('websites:enrich --limit='.min(100, max(1, (int) config('enric
 
 Schedule::command('websites:pagespeed --limit='.min(100, max(1, (int) config('pagespeed.batch_size'))))
     ->everyFiveMinutes()->withoutOverlapping()->when(fn (): bool => config('pagespeed.enabled') && config('pagespeed.scheduled'));
+
+Schedule::command('outreach:draft --limit='.min(100, max(1, (int) config('outreach.batch_size'))))
+    ->everyFiveMinutes()->withoutOverlapping()->when(fn (): bool => config('outreach.enabled') && config('outreach.scheduled'));

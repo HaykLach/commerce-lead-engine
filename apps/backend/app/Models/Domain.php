@@ -59,6 +59,11 @@ class Domain extends BaseModel
         return $this->hasMany(DomainContact::class);
     }
 
+    public function outreachDrafts(): HasMany
+    {
+        return $this->hasMany(OutreachDraft::class);
+    }
+
     public function primaryContact(): BelongsTo
     {
         return $this->belongsTo(DomainContact::class, 'primary_contact_id');

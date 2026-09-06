@@ -1,0 +1,50 @@
+<div @if($draft?->active_domain_id) wire:poll.10s @endif>
+    <p>Email drafts are saved for review. This section does not send emails.</p>
+    @if (! $configured) <p>Configure the OpenAI drafting key and model to enable generation. PageSpeed is optional.</p> @endif
+    @if ($canEdit && $configured)
+        <x-filament::button size="sm" wire:click="generate" wire:loading.attr="disabled">Generate draft</x-filament::button>
+        @if ($draft && ! $draft->active_domain_id)
+            <x-filament::button size="sm" color="gray" wire:click="generate(true)" wire:loading.attr="disabled">Generate a new version</x-filament::button>
+        @endif
+    @endif
+    @error('draft') <p role="alert">{{ $message }}</p> @enderror
+    @if ($history->isNotEmpty())
+        <p>Recent drafts:</p>
+        @foreach ($history as $item)
+            <x-filament::button size="xs" color="gray" wire:click="loadDraft({{ $item->id }})">#{{ $item->id }} · {{ ucfirst($item->status) }}</x-filament::button>
+        @endforeach
+    @endif
+    @if ($draft)
+        <p style="margin-top: 1rem"><strong>Draft #{{ $draft->id }} · {{ ucfirst($draft->status) }}</strong></p>
+        <p>Recipient: {{ $draft->recipient_email }} · Audit #{{ $draft->website_audit_id }}</p>
+        @if (! $current) <p role="status">The selected contact or evidence has changed or expired. Generate a new draft before using this version.</p> @endif
+        @if ($draft->error) <p role="status">{{ $draft->error }}</p> @endif
+        @if ($draft->next_attempt_at?->isFuture()) <p>Next attempt: {{ $draft->next_attempt_at->toDateTimeString() }} UTC</p> @endif
+        @if ($draft->status === 'draft')
+            <p><strong>{{ $draft->subject }}</strong></p>
+            <p style="white-space: pre-wrap">{{ $draft->body }}</p>
+            @if ($canEdit && $current)
+                <details>
+                    <summary wire:click="loadDraft({{ $draft->id }})">Edit this draft</summary>
+                    <label>Subject <input type="text" wire:model="subject" maxlength="160" style="display: block; width: 100%"></label>
+                    @error('subject') <p role="alert">{{ $message }}</p> @enderror
+                    <label>Email <textarea wire:model="body" rows="12" maxlength="5000" style="display: block; width: 100%"></textarea></label>
+                    @error('body') <p role="alert">{{ $message }}</p> @enderror
+                    <x-filament::button size="sm" wire:click="saveDraft" wire:loading.attr="disabled">Save draft</x-filament::button>
+                </details>
+            @endif
+            <p>Review the subject, wording, and evidence before using this draft. Saved edits remain drafts.</p>
+        @endif
+        <details style="margin-top: 1rem">
+            <summary>Source findings and generation details</summary>
+            <p>Model: {{ $draft->response_model ?? $draft->model }} · Prompt: {{ $draft->prompt_version }} · Attempts: {{ $draft->attempts }}</p>
+            @if ($draft->usage) <p>Input tokens: {{ $draft->usage['input_tokens'] ?? 'Unavailable' }} · Output tokens: {{ $draft->usage['output_tokens'] ?? 'Unavailable' }}</p> @endif
+            @foreach ($draft->evidence['facts'] as $fact)
+                <p>{{ in_array($fact['id'], $draft->selected_issue_ids ?? [], true) ? 'Used: ' : '' }}{{ $fact['text'] }}</p>
+                <p>Source: {{ $fact['source_url'] }} · Observed: {{ $fact['observed_at'] }}</p>
+            @endforeach
+        </details>
+    @else
+        <p>No email drafts yet. Select a contact and complete a website audit first.</p>
+    @endif
+</div>
