@@ -11,3 +11,6 @@ Artisan::command('app:about-leads', function (): void {
 
 Schedule::command('websites:enrich --limit='.min(100, max(1, (int) config('enrichment.batch_size'))))
     ->everyFiveMinutes()->withoutOverlapping()->when(fn (): bool => (bool) config('enrichment.scheduled'));
+
+Schedule::command('websites:pagespeed --limit='.min(100, max(1, (int) config('pagespeed.batch_size'))))
+    ->everyFiveMinutes()->withoutOverlapping()->when(fn (): bool => config('pagespeed.enabled') && config('pagespeed.scheduled'));

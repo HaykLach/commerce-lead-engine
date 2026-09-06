@@ -63,4 +63,4 @@ Automatic batching is disabled by default. Set `WEBSITE_ENRICHMENT_SCHEDULED=tru
 
 The focused enrichment/contact/classification regression suite covers extraction, bounded page discovery, freshness, duplicate dispatch, worker leases, retry reuse/exhaustion, source timestamps, manual selections, admin access, unsafe addresses/URLs, redirect validation, and DNS rebinding. Tests use fixtures and mocked HTTP/DNS; no live websites or paid APIs are invoked.
 
-PageSpeed measurements are the next collector. They will have their own retry state and remain internal evidence for a brief, supported email observation. AI drafting and message delivery are later milestones.
+The separate [PageSpeed collector](pagespeed-integration.md) now measures successful homepage/category audit pages with independent retries and internal results. AI drafting and message delivery are later milestones.
