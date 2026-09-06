@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\DomainResource\Schemas;
 
+use App\Livewire\DomainContacts;
 use App\Models\Domain;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\KeyValueEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Livewire;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -87,6 +89,12 @@ class DomainResourceInfolist
                     TextEntry::make('latestPageClassification.classified_at')->label('Classified At')->since()->placeholder('—'),
                 ])
                 ->columns(2),
+            Section::make('Contacts')
+                ->schema([
+                    Livewire::make(DomainContacts::class, fn (Domain $record): array => ['domainId' => $record->id])
+                        ->key(fn (Domain $record): string => 'domain-contacts-'.$record->id),
+                ])
+                ->columnSpanFull(),
             Section::make('Latest Fingerprint')
                 ->schema([
                     TextEntry::make('latestFingerprint.platform')->label('Detected Platform')->badge()->placeholder('unknown'),
