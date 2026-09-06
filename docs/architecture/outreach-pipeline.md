@@ -64,6 +64,8 @@ Official references:
 
 ## Milestone 4: email drafting
 
+Implemented as a PHP/Laravel draft-only workflow: a replaceable OpenAI adapter selects source findings and writes the subject/opening, while PHP composes the factual observations, FFP positioning, exact CTA, and signature. The domain detail page supports review and editing with source tracking. PageSpeed is optional. See [Email drafting](email-drafting.md) for configuration, queue/recovery behavior, limits, and validation.
+
 - Add outreach-message records referencing a specific audit and selected contact.
 - Implement a replaceable drafting interface with an optional OpenAI adapter and mocked tests.
 - The new agreed AI scope uses the metered API; keep discovery free of paid APIs, and keep the AI integration disabled until configured. This milestone does not change `AGENTS.md` or invoke any paid API.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\DomainResource\Schemas;
 
 use App\Livewire\DomainContacts;
+use App\Livewire\DomainOutreachDrafts;
 use App\Livewire\DomainPageSpeed;
 use App\Livewire\DomainWebsiteAudit;
 use App\Models\Domain;
@@ -107,6 +108,12 @@ class DomainResourceInfolist
                 ->schema([
                     Livewire::make(DomainContacts::class, fn (Domain $record): array => ['domainId' => $record->id])
                         ->key(fn (Domain $record): string => 'domain-contacts-'.$record->id),
+                ])
+                ->columnSpanFull(),
+            Section::make('Email drafts')
+                ->schema([
+                    Livewire::make(DomainOutreachDrafts::class, fn (Domain $record): array => ['domainId' => $record->id])
+                        ->key(fn (Domain $record): string => 'domain-outreach-drafts-'.$record->id),
                 ])
                 ->columnSpanFull(),
             Section::make('Latest Fingerprint')
