@@ -69,6 +69,21 @@ class Domain extends BaseModel
         return $this->belongsTo(PageClassification::class, 'contacts_classification_id');
     }
 
+    public function websiteAudits(): HasMany
+    {
+        return $this->hasMany(WebsiteAudit::class);
+    }
+
+    public function latestWebsiteAudit(): HasOne
+    {
+        return $this->hasOne(WebsiteAudit::class)->latestOfMany();
+    }
+
+    public function contactsAudit(): BelongsTo
+    {
+        return $this->belongsTo(WebsiteAudit::class, 'contacts_audit_id');
+    }
+
     public function crawlJobs(): HasMany
     {
         return $this->hasMany(CrawlJob::class);

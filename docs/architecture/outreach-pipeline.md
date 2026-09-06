@@ -38,11 +38,11 @@ Known parser limits: no JavaScript execution, no CSS visibility evaluation, no d
 
 ## Milestone 2: durable enrichment and contact records
 
-The Laravel contact-storage and selection portion is implemented in the follow-up Contacts PR: see [Domain contacts](domain-contacts.md) for rollout, PHP rules, and admin behavior. Dedicated audit runs and enrichment execution below remain planned.
+The Laravel contact-storage and selection portion is implemented: see [Domain contacts](domain-contacts.md) for rollout, PHP rules, and admin behavior. Dedicated PHP audit runs, bounded HTTP collection, retries, freshness, contact ingestion, and admin controls are now implemented; see [Website enrichment](website-enrichment.md) for setup and limitations. Performance measurements remain milestone 3.
 
 - Add audit-run and contact tables related to `Domain`, with independent audit states and timestamps.
 - Store page evidence and performance-test results separately from discovery confidence.
-- Add a `website_enrichment` crawl-job type and a bounded dispatcher for suitable saved ecommerce domains.
+- Use a dedicated Laravel `website-enrichment` queue and a bounded dispatcher for suitable saved ecommerce domains, separate from Python crawl jobs.
 - Reuse known sample URLs and inspect contact/about/impressum pages within the page budget.
 - Use an HTTP fetcher with public-address validation on every redirect, request/response limits, host pacing, and failure provenance.
 - Give each external collector its own retry state. A PageSpeed error must not refetch successful pages or turn missing measurements into zero scores.
