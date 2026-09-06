@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\DomainResource\Schemas;
 
 use App\Livewire\DomainContacts;
+use App\Livewire\DomainWebsiteAudit;
 use App\Models\Domain;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\KeyValueEntry;
@@ -89,6 +90,12 @@ class DomainResourceInfolist
                     TextEntry::make('latestPageClassification.classified_at')->label('Classified At')->since()->placeholder('—'),
                 ])
                 ->columns(2),
+            Section::make('Website audit')
+                ->schema([
+                    Livewire::make(DomainWebsiteAudit::class, fn (Domain $record): array => ['domainId' => $record->id])
+                        ->key(fn (Domain $record): string => 'domain-website-audit-'.$record->id),
+                ])
+                ->columnSpanFull(),
             Section::make('Contacts')
                 ->schema([
                     Livewire::make(DomainContacts::class, fn (Domain $record): array => ['domainId' => $record->id])

@@ -12,7 +12,7 @@ RUN apt-get update \
         libicu-dev \
         libonig-dev \
         default-mysql-client \
-    && docker-php-ext-install pdo pdo_mysql mbstring bcmath intl zip \
+    && docker-php-ext-install pdo pdo_mysql mbstring bcmath intl zip pcntl \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && rm -rf /var/lib/apt/lists/*

@@ -1,4 +1,4 @@
-<div class="domain-contacts">
+<div class="domain-contacts" wire:poll.15s>
     <style>
         .domain-contacts .contact-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-bottom: 1rem; }
         .domain-contacts .contact-table-wrap { overflow-x: auto; margin: 1rem 0; }
@@ -23,16 +23,16 @@
     </div>
     <p class="contact-note">Choose one primary email. Your manual selection, purpose changes, and exclusions are preserved after rescanning.</p>
     @if ($scan['scanned_at'])
-        <p class="contact-note">Latest classification: {{ $scan['scanned_at']->toDateTimeString() }} UTC</p>
+        <p class="contact-note">Latest contact scan: {{ $scan['scanned_at']->toDateTimeString() }} UTC</p>
     @endif
-    @if ($latestJob?->status === \App\Enums\CrawlJobStatus::Failed)
+    @if ($latestJob?->status === \App\Enums\CrawlJobStatus::Failed && (! $scan['scanned_at'] || $latestJob->created_at->gt($scan['scanned_at'])))
         <p role="status">The latest page scan failed. Previously collected contacts remain available.</p>
     @elseif ($scan['status'] === 'partial')
         <p role="status">Contact scanning was incomplete. Some pages or addresses could not be processed; automatic selection is paused.</p>
     @elseif ($scan['status'] === 'unavailable')
         <p role="status">No contact extraction results yet.</p>
     @endif
-    @if ($scan['status'] !== 'unavailable' && $domain->contacts_classification_id !== $domain->latestPageClassification?->id)
+    @if (! $domain->contacts_audit_id && $scan['status'] !== 'unavailable' && $domain->contacts_classification_id !== $domain->latestPageClassification?->id)
         <p role="status">Contacts from the latest scan have not been imported.</p>
     @endif
 

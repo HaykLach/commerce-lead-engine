@@ -85,7 +85,8 @@ class DomainContacts extends Component
 
     public function render(): View
     {
-        $domain = $this->domain()->load(['primaryContact', 'latestPageClassification']);
+        $domain = $this->domain()->load(['primaryContact', 'latestPageClassification', 'contactsAudit']);
+        $scanRecord = $domain->contactsAudit ?? $domain->latestPageClassification;
         $contacts = $domain->contacts()->withCount('sources')
             ->when($this->filter === 'needs_review', fn ($query) => $query->where('review_status', 'candidate'))
             ->when($this->filter === 'excluded', fn ($query) => $query->where('review_status', 'excluded'))
@@ -98,7 +99,7 @@ class DomainContacts extends Component
             'canEdit' => DomainResource::canEdit($domain),
             'purposes' => app(ContactPurposeClassifier::class),
             'selection' => app(ContactSelectionService::class),
-            'scan' => app(ContactScanReader::class)->read($domain->latestPageClassification),
+            'scan' => app(ContactScanReader::class)->read($scanRecord),
             'latestJob' => $domain->crawlJobs()->where('crawl_payload->job_type', 'page_classification')->latest('id')->first(),
             'sourceContact' => $this->sourceContactId === null ? null : $domain->contacts()->with('sources')->find($this->sourceContactId),
         ]);
