@@ -1,5 +1,5 @@
 <div @if($draft?->active_domain_id) wire:poll.10s @endif>
-    <p>Email drafts are saved for review. This section does not send emails.</p>
+    <p>Email drafts are saved for review. Only approved, scheduled messages can be sent.</p>
     @if (! $configured) <p>Configure the OpenAI drafting key and model to enable generation. PageSpeed is optional.</p> @endif
     @if ($canEdit && $configured)
         <x-filament::button size="sm" wire:click="generate" wire:loading.attr="disabled">Generate draft</x-filament::button>
@@ -20,10 +20,10 @@
         @if (! $current) <p role="status">The selected contact or evidence has changed or expired. Generate a new draft before using this version.</p> @endif
         @if ($draft->error) <p role="status">{{ $draft->error }}</p> @endif
         @if ($draft->next_attempt_at?->isFuture()) <p>Next attempt: {{ $draft->next_attempt_at->toDateTimeString() }} UTC</p> @endif
-        @if ($draft->status === 'draft')
+        @if (in_array($draft->status, ['draft', 'scheduled'], true))
             <p><strong>{{ $draft->subject }}</strong></p>
             <p style="white-space: pre-wrap">{{ $draft->body }}</p>
-            @if ($canEdit && $current)
+            @if ($canEdit && $current && $draft->status === 'draft')
                 <details>
                     <summary wire:click="loadDraft({{ $draft->id }})">Edit this draft</summary>
                     <label>Subject <input type="text" wire:model="subject" maxlength="160" style="display: block; width: 100%"></label>
@@ -32,9 +32,25 @@
                     @error('body') <p role="alert">{{ $message }}</p> @enderror
                     <x-filament::button size="sm" wire:click="saveDraft" wire:loading.attr="disabled">Save draft</x-filament::button>
                 </details>
+                <label>Send at (Armenia time) <input type="datetime-local" wire:model="scheduledFor"></label>
+                @error('scheduledFor') <p role="alert">{{ $message }}</p> @enderror
+                <x-filament::button size="sm" wire:click="approveAndSchedule" wire:loading.attr="disabled">Approve and schedule</x-filament::button>
             @endif
             <p>Review the subject, wording, and evidence before using this draft. Saved edits remain drafts.</p>
         @endif
+        @foreach ($messages as $delivery)
+            <p>Message #{{ $delivery->id }} · {{ ucfirst($delivery->status) }} · Scheduled for {{ $delivery->scheduled_at->timezone('Asia/Yerevan')->format('Y-m-d H:i') }} Armenia time</p>
+            @if ($delivery->error) <p>{{ $delivery->error }}</p> @endif
+            @if ($delivery->status === 'accepted') <p>Accepted by SMTP at {{ $delivery->accepted_at->timezone('Asia/Yerevan')->format('Y-m-d H:i') }}. This does not confirm inbox delivery.</p> @endif
+            @if ($canEdit && in_array($delivery->status, ['scheduled', 'blocked'], true))
+                <x-filament::button size="sm" color="gray" wire:click="cancelMessage({{ $delivery->id }})">Cancel and return to draft</x-filament::button>
+                @if ($delivery->status === 'scheduled')
+                    <label>New send time (Armenia) <input type="datetime-local" wire:model="scheduledFor"></label>
+                    @error('scheduledFor') <p role="alert">{{ $message }}</p> @enderror
+                    <x-filament::button size="sm" wire:click="rescheduleMessage({{ $delivery->id }})">Reschedule</x-filament::button>
+                @endif
+            @endif
+        @endforeach
         <details style="margin-top: 1rem">
             <summary>Source findings and generation details</summary>
             <p>Model: {{ $draft->response_model ?? $draft->model }} · Prompt: {{ $draft->prompt_version }} · Attempts: {{ $draft->attempts }}</p>

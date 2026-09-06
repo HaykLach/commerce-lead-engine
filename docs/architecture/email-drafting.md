@@ -1,6 +1,6 @@
 # PHP email drafting
 
-The **Email drafts** section on a domain detail page generates and stores short English outreach drafts for the currently selected contact. It works without a PageSpeed API key or measurement: unavailable speed evidence is omitted. Sending is a separate, later milestone.
+The **Email drafts** section on a domain detail page generates and stores short English outreach drafts for the currently selected contact. It works without a PageSpeed API key or measurement: unavailable speed evidence is omitted. Approval and scheduled sending are documented in [daily review and delivery](outreach-review-and-delivery.md).
 
 ## What this version writes
 
@@ -75,6 +75,6 @@ Edit `apps/backend/config/outreach.php` to maintain FFP services, positioning, C
 
 Tests use mocked HTTP with no live OpenAI calls. They cover drafting without PageSpeed, source eligibility, no-findings behavior, output validation/refusal, usage retention, source changes during generation, request budgets, retry limits, ambiguous-request recovery, history/deduplication, secret redaction, source JSON key ordering, and editor authorization/concurrency. Real model quality and project availability still need a small configured draft-only trial.
 
-Delivery, approvals for sending, suppression checks, campaign limits, SMTP handling, and mailbox synchronization belong to the next milestone. This migration does not add an outbox or a send action.
+The drafting migration itself does not add an outbox. The subsequent [review and delivery milestone](outreach-review-and-delivery.md) adds approval snapshots, scheduling and SMTP delivery; mailbox synchronization remains future work.
 
 Official reference: [OpenAI structured outputs and refusal/incomplete handling](https://developers.openai.com/api/docs/guides/structured-outputs).

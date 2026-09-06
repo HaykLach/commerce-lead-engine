@@ -6,9 +6,11 @@ namespace App\Livewire;
 
 use App\Filament\Resources\DomainResource;
 use App\Models\Domain;
+use App\Models\OutreachMessage;
 use App\Services\Outreach\DraftDispatcher;
 use App\Services\Outreach\DraftException;
 use App\Services\Outreach\DraftRunner;
+use App\Services\Outreach\MessageApproval;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\View\View;
@@ -31,9 +33,17 @@ class DomainOutreachDrafts extends Component
 
     public string $body = '';
 
-    public function mount(int $domainId): void
+    public string $scheduledFor = '';
+
+    public function mount(int $domainId, ?int $initialDraftId = null): void
     {
         $this->domainId = $domainId;
+        $this->scheduledFor = now('Asia/Yerevan')->addDay()->setTime(10, 0)->format('Y-m-d\TH:i');
+        if ($initialDraftId !== null) {
+            $this->loadDraft($initialDraftId);
+
+            return;
+        }
         $latest = $this->domain()->outreachDrafts()->latest('id')->first();
         if ($latest !== null) {
             $this->loadDraft($latest->id);
@@ -87,12 +97,37 @@ class DomainOutreachDrafts extends Component
         });
     }
 
+    public function approveAndSchedule(): void
+    {
+        $this->domain();
+        $draft = $this->domain()->outreachDrafts()->findOrFail($this->draftId);
+        if ($this->subject !== $draft->subject || $this->body !== $draft->body) {
+            $this->addError('draft', 'Save your edits before approving.');
+
+            return;
+        }
+        app(MessageApproval::class)->approve($this->domainId, $draft->id, $this->revision, $this->scheduledFor);
+        $this->loadDraft($draft->id);
+        Notification::make()->title('Approved and scheduled')->success()->send();
+    }
+
+    public function cancelMessage(int $id): void
+    {
+        app(MessageApproval::class)->cancel($this->domainId, $id);
+        $this->loadDraft($this->draftId);
+    }
+
+    public function rescheduleMessage(int $id): void
+    {
+        app(MessageApproval::class)->reschedule($this->domainId, $id, $this->scheduledFor);
+    }
+
     public function render(): View
     {
         $domain = $this->domain();
         $draft = $domain->outreachDrafts()->find($this->draftId);
 
-        return view('livewire.domain-outreach-drafts', ['draft' => $draft, 'history' => $domain->outreachDrafts()->latest('id')->limit(10)->get(),
+        return view('livewire.domain-outreach-drafts', ['messages' => OutreachMessage::where('domain_id', $domain->id)->where('outreach_draft_id', $this->draftId)->latest('id')->get(), 'draft' => $draft, 'history' => $domain->outreachDrafts()->latest('id')->limit(10)->get(),
             'current' => $draft !== null && app(DraftRunner::class)->current($draft), 'canEdit' => DomainResource::canEdit($domain),
             'configured' => config('outreach.enabled') && filled(config('outreach.api_key')) && filled(config('outreach.model'))]);
     }
