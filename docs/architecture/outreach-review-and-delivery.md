@@ -81,3 +81,13 @@ Configure and test the report/review flow first with sending disabled. Then enab
 ## Validation
 
 Feature tests use fake queues and mocked HTTP/SMTP. They cover Armenia day boundaries and 22:00 scheduling, saved-edit approval, authorization, frozen snapshots, cancellation/rescheduling, no early or disabled sending, source/contact changes, quota deferral, duplicate and lost jobs, SMTP ambiguity, Telegram deduplication and credential redaction, and the real SMTP adapter's explicit envelope/content assembly. No live recipient or Telegram chat is contacted by the test suite.
+
+## Report UI and rich email editing
+
+The report page includes status icons, colored badges, summary cards, readable tables and selected-row highlighting. The domain PageSpeed panel uses a Lighthouse-style performance gauge, metric cards, device labels and expandable lab/field details. Only stored performance data is shown; accessibility, SEO and best-practices category scores are not collected by this integration.
+
+Draft subjects and the Filament rich-text editor are immediately editable when the draft is current and the user can edit the domain. Supported formatting includes bold, italic, underline, strike, lists and blockquotes. Images, attachments and links are not offered. Server-side sanitization removes unsupported markup, attributes and active content. The canonical CTA/signature remain required in the visible text.
+
+A migration adds nullable `body_html` to drafts and approval snapshots. Existing drafts open from their plain-text body, and previously approved plain-text messages continue to send unchanged. Saving rich content retains a plain-text alternative; approval freezes both versions, and SMTP sends multipart content for rich drafts. Formatting changes after approval block sending just like subject/body changes.
+
+Deploy with `php artisan migrate --force`, `php artisan view:clear` and `php artisan queue:restart`. This uses existing Filament editor assets and scoped Blade styles; no new JavaScript dependency or npm build is required. On installations with missing/outdated published Filament assets, run `php artisan filament:assets`.

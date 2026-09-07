@@ -18,6 +18,9 @@ class SmtpOutreachTransport implements OutreachTransport
         // Dedicated SMTP transport: never inherit log, failover or global recipient overrides.
         $email = (new Email)->from(new Address($message->from_email, $message->from_name))
             ->to($message->recipient_email)->subject($message->subject)->text($message->body);
+        if ($message->body_html !== null) {
+            $email->html(EmailMarkup::clean($message->body_html));
+        }
         $email->getHeaders()->addIdHeader('Message-ID', $message->message_id);
         $sent = Mail::mailer('outreach')->getSymfonyTransport()->send($email,
             new Envelope(new Address($message->from_email), [new Address($message->recipient_email)]));
