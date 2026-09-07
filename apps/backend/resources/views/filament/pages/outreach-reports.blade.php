@@ -31,7 +31,7 @@
             </tbody>
         </table>
     </div>
-    {{ $drafts->links() }}
+    <x-filament::pagination :paginator="$drafts" />
     @if ($selected)
         <x-filament::section heading="Review email">
             <p><strong>{{ $selected->domain->domain }}</strong></p>
