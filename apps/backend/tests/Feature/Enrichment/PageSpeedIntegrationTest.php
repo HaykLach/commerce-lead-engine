@@ -427,7 +427,7 @@ class PageSpeedIntegrationTest extends TestCase
         Livewire::test(DomainPageSpeed::class, ['domainId' => $audit->domain_id])->assertSee('No PageSpeed measurements')->call('measure')->assertSee('Queued');
         $this->fakeSuccess();
         app(PageSpeedRunner::class)->run(PageSpeedMeasurement::sole()->id);
-        Livewire::test(DomainPageSpeed::class, ['domainId' => $audit->domain_id])->assertSee('42/100')->assertSee('Lighthouse lab score')->assertSee('Unavailable');
+        Livewire::test(DomainPageSpeed::class, ['domainId' => $audit->domain_id])->assertSee('Lighthouse performance score: 42 out of 100')->assertSee('Metrics')->assertSee('Unavailable');
         Gate::policy(Domain::class, PageSpeedReadOnlyPolicy::class);
         Livewire::test(DomainPageSpeed::class, ['domainId' => $audit->domain_id])->call('measure', true)->assertForbidden();
         $this->assertSame(1, PageSpeedMeasurement::count());

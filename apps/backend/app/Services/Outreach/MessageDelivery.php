@@ -53,6 +53,7 @@ class MessageDelivery
             $draft = $message->draft;
             if ($message->approved_at === null || $draft->status !== 'scheduled' || $draft->revision !== $message->draft_revision
                 || $draft->recipient_email !== $message->recipient_email || $draft->subject !== $message->subject || $draft->body !== $message->body
+                || $draft->body_html !== $message->body_html
                 || ! app(DraftRunner::class)->current($draft)) {
                 $message->update(['status' => 'blocked', 'error' => 'Contact, content or source evidence changed. Cancel and review a fresh draft.']);
 

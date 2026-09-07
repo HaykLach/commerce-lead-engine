@@ -39,7 +39,7 @@ class MessageApproval
             $message = OutreachMessage::create([
                 'domain_id' => $domainId, 'outreach_draft_id' => $draftId, 'active_domain_id' => $domainId,
                 'approved_by' => Filament::auth()->id(), 'draft_revision' => $revision,
-                'recipient_email' => $draft->recipient_email, 'subject' => $draft->subject, 'body' => $draft->body,
+                'recipient_email' => $draft->recipient_email, 'subject' => $draft->subject, 'body' => $draft->body, 'body_html' => $draft->body_html,
                 'from_email' => $from, 'from_name' => (string) config('mail.from.name'),
                 'message_id' => Str::uuid().'@'.Str::after($from, '@'),
                 'status' => 'scheduled', 'approved_at' => now(), 'scheduled_at' => $scheduled, 'next_attempt_at' => $scheduled,

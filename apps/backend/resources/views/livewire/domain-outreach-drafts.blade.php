@@ -1,4 +1,5 @@
-<div @if($draft?->active_domain_id) wire:poll.10s @endif>
+<div class="ffp-panel ffp-stack" @if($draft?->active_domain_id) wire:poll.10s @endif>
+    <x-outreach-styles />
     <p>Email drafts are saved for review. Only approved, scheduled messages can be sent.</p>
     @if (! $configured) <p>Configure the OpenAI drafting key and model to enable generation. PageSpeed is optional.</p> @endif
     @if ($canEdit && $configured)
@@ -21,20 +22,22 @@
         @if ($draft->error) <p role="status">{{ $draft->error }}</p> @endif
         @if ($draft->next_attempt_at?->isFuture()) <p>Next attempt: {{ $draft->next_attempt_at->toDateTimeString() }} UTC</p> @endif
         @if (in_array($draft->status, ['draft', 'scheduled'], true))
-            <p><strong>{{ $draft->subject }}</strong></p>
-            <p style="white-space: pre-wrap">{{ $draft->body }}</p>
             @if ($canEdit && $current && $draft->status === 'draft')
-                <details>
-                    <summary wire:click="loadDraft({{ $draft->id }})">Edit this draft</summary>
-                    <label>Subject <input type="text" wire:model="subject" maxlength="160" style="display: block; width: 100%"></label>
+                <div wire:key="email-editor-{{ $draft->id }}" style="margin: 1.25rem 0">
+                    {{ $this->editor }}
                     @error('subject') <p role="alert">{{ $message }}</p> @enderror
-                    <label>Email <textarea wire:model="body" rows="12" maxlength="5000" style="display: block; width: 100%"></textarea></label>
                     @error('body') <p role="alert">{{ $message }}</p> @enderror
-                    <x-filament::button size="sm" wire:click="saveDraft" wire:loading.attr="disabled">Save draft</x-filament::button>
-                </details>
-                <label>Send at (Armenia time) <input type="datetime-local" wire:model="scheduledFor"></label>
+                    <div style="margin-top: 1rem">
+                        <x-filament::button icon="heroicon-o-check" wire:click="saveDraft" wire:loading.attr="disabled">Save draft</x-filament::button>
+                    </div>
+                </div>
+                <label>Send at (Armenia time) <input class="ffp-date" type="datetime-local" wire:model="scheduledFor"></label>
                 @error('scheduledFor') <p role="alert">{{ $message }}</p> @enderror
                 <x-filament::button size="sm" wire:click="approveAndSchedule" wire:loading.attr="disabled">Approve and schedule</x-filament::button>
+            @endif
+            @if (! $canEdit || ! $current || $draft->status !== 'draft')
+                <p><strong>{{ $draft->subject }}</strong></p>
+                <div class="ffp-prose">{!! \App\Services\Outreach\EmailMarkup::clean($draft->body_html ?? \App\Services\Outreach\EmailMarkup::fromText($draft->body ?? '')) !!}</div>
             @endif
             <p>Review the subject, wording, and evidence before using this draft. Saved edits remain drafts.</p>
         @endif
@@ -45,7 +48,7 @@
             @if ($canEdit && in_array($delivery->status, ['scheduled', 'blocked'], true))
                 <x-filament::button size="sm" color="gray" wire:click="cancelMessage({{ $delivery->id }})">Cancel and return to draft</x-filament::button>
                 @if ($delivery->status === 'scheduled')
-                    <label>New send time (Armenia) <input type="datetime-local" wire:model="scheduledFor"></label>
+                    <label>New send time (Armenia) <input class="ffp-date" type="datetime-local" wire:model="scheduledFor"></label>
                     @error('scheduledFor') <p role="alert">{{ $message }}</p> @enderror
                     <x-filament::button size="sm" wire:click="rescheduleMessage({{ $delivery->id }})">Reschedule</x-filament::button>
                 @endif

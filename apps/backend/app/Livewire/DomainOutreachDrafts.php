@@ -10,16 +10,33 @@ use App\Models\OutreachMessage;
 use App\Services\Outreach\DraftDispatcher;
 use App\Services\Outreach\DraftException;
 use App\Services\Outreach\DraftRunner;
+use App\Services\Outreach\EmailMarkup;
 use App\Services\Outreach\MessageApproval;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\RichEditor;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Concerns\InteractsWithSchemas;
+use Filament\Schemas\Contracts\HasSchemas;
+use Filament\Schemas\Schema;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 
-class DomainOutreachDrafts extends Component
+class DomainOutreachDrafts extends Component implements HasSchemas
 {
+    use InteractsWithSchemas;
+
+    public function editor(Schema $schema): Schema
+    {
+        return $schema->components([
+            TextInput::make('subject')->required()->maxLength(160),
+            RichEditor::make('body')->label('Email')->required()
+                ->toolbarButtons([['bold', 'italic', 'underline', 'strike'], ['bulletList', 'orderedList', 'blockquote'], ['undo', 'redo']]),
+        ]);
+    }
+
     #[Locked]
     public int $domainId;
 
@@ -31,7 +48,7 @@ class DomainOutreachDrafts extends Component
 
     public string $subject = '';
 
-    public string $body = '';
+    public string|array $body = '';
 
     public string $scheduledFor = '';
 
@@ -56,7 +73,7 @@ class DomainOutreachDrafts extends Component
         $this->draftId = $draft->id;
         $this->revision = $draft->revision;
         $this->subject = $draft->subject ?? '';
-        $this->body = $draft->body ?? '';
+        $this->body = $draft->body_html ?? EmailMarkup::fromText($draft->body ?? '');
         $this->resetErrorBag();
     }
 
@@ -77,7 +94,8 @@ class DomainOutreachDrafts extends Component
     {
         $domain = $this->domain();
         abort_unless(DomainResource::canEdit($domain), 403);
-        $this->validate(['subject' => ['required', 'string', 'max:160', 'not_regex:/[\r\n<>]/'], 'body' => ['required', 'string', 'max:5000', 'not_regex:/[<>\x00]/']]);
+        $this->body = $this->editor->getState()['body'];
+        $this->validate(['subject' => ['required', 'string', 'max:160', 'not_regex:/[\r\n<>]/'], 'body' => ['required', 'string', 'max:20000']]);
         DB::transaction(function () use ($domain): void {
             $domain = Domain::query()->lockForUpdate()->findOrFail($domain->id);
             $draft = $domain->outreachDrafts()->lockForUpdate()->findOrFail($this->draftId);
@@ -86,22 +104,27 @@ class DomainOutreachDrafts extends Component
 
                 return;
             }
-            if (! str_contains($this->body, $draft->prompt['cta']) || ! str_ends_with(trim($this->body), $draft->prompt['signature'])) {
+            $html = EmailMarkup::clean($this->body);
+            $plain = EmailMarkup::text($html);
+            $words = EmailMarkup::words($plain);
+            if (mb_strlen($plain) > 5000 || ! str_contains($words, EmailMarkup::words($draft->prompt['cta'])) || ! str_ends_with($words, EmailMarkup::words($draft->prompt['signature']))) {
                 $this->addError('body', 'Keep the agreed call invitation and signature unchanged.');
 
                 return;
             }
-            $draft->update(['subject' => trim($this->subject), 'body' => trim($this->body), 'edited_at' => now(), 'revision' => $draft->revision + 1]);
+            $draft->update(['subject' => trim($this->subject), 'body' => $plain, 'body_html' => $html, 'edited_at' => now(), 'revision' => $draft->revision + 1]);
             $this->revision = $draft->revision;
+            $this->body = $html;
             Notification::make()->title('Draft saved for review')->success()->send();
         });
     }
 
     public function approveAndSchedule(): void
     {
+        $this->body = $this->editor->getState()['body'];
         $this->domain();
         $draft = $this->domain()->outreachDrafts()->findOrFail($this->draftId);
-        if ($this->subject !== $draft->subject || $this->body !== $draft->body) {
+        if ($this->subject !== $draft->subject || EmailMarkup::clean($this->body) !== EmailMarkup::clean($draft->body_html ?? EmailMarkup::fromText($draft->body ?? ''))) {
             $this->addError('draft', 'Save your edits before approving.');
 
             return;

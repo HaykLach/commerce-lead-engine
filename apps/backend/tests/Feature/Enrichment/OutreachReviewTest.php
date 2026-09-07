@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\Contacts\ContactSelectionService;
 use App\Services\Outreach\DailyReports;
 use App\Services\Outreach\DraftEvidenceBuilder;
+use App\Services\Outreach\EmailMarkup;
 use App\Services\Outreach\MessageApproval;
 use App\Services\Outreach\MessageDelivery;
 use App\Services\Outreach\OutreachTransport;
@@ -326,10 +327,12 @@ class OutreachReviewTest extends TestCase
     public function test_smtp_adapter_hands_off_only_frozen_content_to_explicit_recipient(): void
     {
         $message = $this->approve();
+        $message->update(['body_html' => '<p><strong>Reviewed</strong></p>']);
         $transport = \Mockery::mock(TransportInterface::class);
         $transport->shouldReceive('send')->once()->withArgs(function ($email, $envelope) use ($message) {
             $this->assertSame($message->subject, $email->getSubject());
             $this->assertSame($message->body, $email->getTextBody());
+            $this->assertSame($message->body_html, $email->getHtmlBody());
             $this->assertSame($message->message_id, $email->getHeaders()->get('Message-ID')->getId());
             $this->assertSame([$message->recipient_email], array_map(fn ($address) => $address->getAddress(), $envelope->getRecipients()));
 
@@ -339,6 +342,32 @@ class OutreachReviewTest extends TestCase
         $mailer->shouldReceive('getSymfonyTransport')->once()->andReturn($transport);
         Mail::shouldReceive('mailer')->with('outreach')->once()->andReturn($mailer);
         app(SmtpOutreachTransport::class)->send($message);
+    }
+
+    public function test_rich_email_edit_is_sanitized_and_frozen_with_a_plain_text_alternative(): void
+    {
+        $draft = $this->draft();
+        $html = '<p><strong>Hello</strong></p><p>'.e(config('outreach.cta')).'</p><p>Best regards,<br>Ruben Simonyan</p>';
+        $editor = Livewire::test(DomainOutreachDrafts::class, ['domainId' => $draft->domain_id]);
+        $editor->set('body', $html)->call('saveDraft')->assertHasNoErrors();
+        $saved = $draft->fresh();
+        $this->assertStringContainsString('<strong>Hello</strong>', $saved->body_html);
+        $this->assertStringNotContainsString('<', $saved->body);
+        $editor->set('scheduledFor', '2026-09-06T17:00')->call('approveAndSchedule')->assertHasNoErrors();
+        $message = OutreachMessage::sole();
+        $this->assertSame($saved->body_html, $message->body_html);
+        $saved->update(['body_html' => '<p>Changed formatting</p>']);
+        $this->travelTo(now()->setTime(13, 0));
+        $this->mock(OutreachTransport::class)->shouldNotReceive('send');
+        app(MessageDelivery::class)->run($message->id);
+        $this->assertSame('blocked', $message->fresh()->status);
+    }
+
+    public function test_email_markup_drops_active_content_attributes_and_external_images(): void
+    {
+        $clean = EmailMarkup::clean('<p onclick="bad()"><strong>Safe</strong><script>bad()</script><img src="https://tracker.test/x"><a href="javascript:bad()">Text</a></p>');
+        $this->assertSame('<p><strong>Safe</strong>Text</p>', $clean);
+        $this->assertSame("A & B\nNext", EmailMarkup::text('<p>A &amp; B<br>Next</p>'));
     }
 
     public function test_telegram_timeout_does_not_leak_token_or_repeat_notification(): void
